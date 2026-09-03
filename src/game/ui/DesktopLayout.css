@@ -69,8 +69,24 @@
   cursor: pointer;
 }
 
-/* 面板在 flex 流里占一栏，把地图挤窄而不是盖住 */
+/* 容器够宽：面板在 flex 流里占一栏，把地图挤窄而不是盖住 */
 .hexgame--wide .hg-camp {
-  flex: 0 0 268px;
+  flex: 0 0 var(--camp-w);
   border-left: 1px solid var(--line);
+}
+
+/*
+ * 容器不够宽：改成盖在地图右侧。
+ * 从一个 860px 的容器里挖走 268px 只剩 592px 的地图，太挤没法玩。
+ * 盖住地图就必须不透明 —— 共用的 --panel 是半透明的，那是给浮在角上的
+ * 小面板用的。
+ */
+.hexgame--wide.is-camp-overlay .hg-camp {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: var(--camp-w);
+  background: #05090b;
 }

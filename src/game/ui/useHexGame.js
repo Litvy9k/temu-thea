@@ -36,8 +36,16 @@ import { describeHex, drawScene } from '../render/draw.ts';
  * 量的是**游戏容器**的宽度，不是视口宽度 —— 这个游戏将来要嵌进个人站的某个
  * 容器里，落在一个窄栏里的时候，即使是桌面浏览器也该用窄布局。用 matchMedia
  * 判视口，在那种情况下会给出错误答案。
+ *
+ * **量的必须是最外层容器，不能量地图那一块。** 营地面板在宽布局下会占掉
+ * 一栏、在窄布局下改成绝对定位不占流，所以拿地图区的宽度去判断窄宽，等于让
+ * 判断结果反过来改变判断依据：挤窄 → 判成窄屏 → 面板不占流 → 又变宽 →
+ * 判成宽屏 → 循环。实测每一帧都在翻，屏幕疯狂闪烁。
  */
 export const NARROW_WIDTH = 720;
+
+/** 营地面板占一栏时的宽度。CSS 从 --camp-w 读，由 Game.jsx 写进去 */
+export const CAMP_PANEL_WIDTH = 268;
 
 /** 超过这个位移就算拖拽不算点击。触屏上手指落下时总会抖一两像素 */
 const DRAG_SLOP = 8;
@@ -48,6 +56,9 @@ const DRAG_SLOP = 8;
  * 所以只要拿到这个对象引用，任何时候读到的都是最新的。
  */
 export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = null }) {
+  /** 最外层容器，只用来决定布局 —— 它的宽度不受面板开合影响 */
+  const shellRef = useRef(null);
+  /** 地图那一块，用来算相机视口 —— 它的宽度**会**随面板开合变化 */
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -59,6 +70,7 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
   const [, bump] = useReducer((n) => n + 1, 0);
 
   const [vp, setVp] = useState({ width: 0, height: 0 });
+  const [shellWidth, setShellWidth] = useState(0);
   const [cam, setCam] = useState({ cx: 0, cy: 0, size: 26 });
   const [hover, setHover] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -85,6 +97,15 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
       const { width, height } = entry.contentRect;
       setVp({ width: Math.round(width), height: Math.round(height) });
     });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 布局判断单独量最外层，和上面那个观察者互不影响
+  useLayoutEffect(() => {
+    const el = shellRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(([entry]) => setShellWidth(Math.round(entry.contentRect.width)));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -292,10 +313,17 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
   return {
     game,
     lang,
+    shellRef,
     wrapRef,
     canvasRef,
-    /** 容器窄到该换布局了。vp 还没量出来时是 null，此时先别渲染面板 */
-    narrow: vp.width === 0 ? null : vp.width < NARROW_WIDTH,
+    /** 容器窄到该换布局了。宽度还没量出来时是 null，此时先别渲染面板 */
+    narrow: shellWidth === 0 ? null : shellWidth < NARROW_WIDTH,
+    /**
+     * 宽布局下营地面板能不能占一栏（挤窄地图），还是只能盖在地图上。
+     * 挤窄之后剩给地图的宽度必须还在 NARROW_WIDTH 以上，否则地图太挤 ——
+     * 这条同时也是那个抖动循环的第二道保险。
+     */
+    campSqueezes: shellWidth >= NARROW_WIDTH + CAMP_PANEL_WIDTH,
 
     camped,
     idle: idleCount(game),
