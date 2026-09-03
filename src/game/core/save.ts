@@ -151,34 +151,34 @@ export function parseSave(text: string): GameState {
   try {
     file = JSON.parse(text);
   } catch {
-    throw new SaveError({ en: 'not a valid JSON file', zh: '这不是一个有效的 JSON 文件' });
+    throw new SaveError({ en: 'Not a valid JSON file', zh: '这不是一个有效的 JSON 文件' });
   }
 
   if (!file || typeof file !== 'object') {
-    throw new SaveError({ en: 'save content is not an object', zh: '存档内容不是一个对象' });
+    throw new SaveError({ en: 'Save content is not an object', zh: '存档内容不是一个对象' });
   }
   if (file.v !== SAVE_VERSION) {
     throw new SaveError(
-      { en: 'save version mismatch', zh: '存档版本对不上' },
+      { en: 'Save version mismatch', zh: '存档版本对不上' },
       `${file.v ?? '?'} → ${SAVE_VERSION}`,
     );
   }
 
   const m = file.map;
   if (!m || typeof m.width !== 'number' || typeof m.height !== 'number') {
-    throw new SaveError({ en: 'no map size in the save', zh: '存档里没有地图尺寸' });
+    throw new SaveError({ en: 'No map size in the save', zh: '存档里没有地图尺寸' });
   }
 
   const n = m.width * m.height;
   if (typeof m.terrain !== 'string' || m.terrain.length !== n) {
     throw new SaveError(
-      { en: 'terrain data length does not match the map', zh: '地形数据长度和地图对不上' },
+      { en: 'Terrain data length does not match the map', zh: '地形数据长度和地图对不上' },
       `${m.terrain?.length ?? 0} / ${n}`,
     );
   }
   if (typeof m.explored !== 'string' || m.explored.length !== n) {
     throw new SaveError({
-      en: 'explored data length does not match the map',
+      en: 'Explored data length does not match the map',
       zh: '探明数据长度和地图对不上',
     });
   }
@@ -189,7 +189,7 @@ export function parseSave(text: string): GameState {
     const id = TERRAIN_CODES[code];
     if (!id) {
       throw new SaveError(
-        { en: 'unrecognised terrain code', zh: '有一格的地形编码无法识别' },
+        { en: 'Unrecognised terrain code', zh: '有一格的地形编码无法识别' },
         `#${i}`,
       );
     }
@@ -206,10 +206,10 @@ export function parseSave(text: string): GameState {
   const map: GameMap = { width: m.width, height: m.height, seed: m.seed ?? 0, tiles };
 
   if (!file.party || typeof file.party.people !== 'number') {
-    throw new SaveError({ en: 'no party data in the save', zh: '存档里没有队伍数据' });
+    throw new SaveError({ en: 'No party data in the save', zh: '存档里没有队伍数据' });
   }
   if (!file.works || !file.works.tools) {
-    throw new SaveError({ en: 'no works data in the save', zh: '存档里没有工事数据' });
+    throw new SaveError({ en: 'No works data in the save', zh: '存档里没有工事数据' });
   }
 
   const state: GameState = {

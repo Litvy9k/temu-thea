@@ -31,12 +31,6 @@ body {
   border-bottom: 1px solid rgba(120, 200, 175, 0.22);
 }
 
-.shell__tools {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .shell__bar button {
   padding: 4px 10px;
   color: inherit;

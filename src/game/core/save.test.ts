@@ -101,10 +101,10 @@ test('存档比整份 stringify 小一个量级', () => {
 
 test('坏文件抛的是人话，不是崩溃，而且中英文都有', () => {
   const cases: [string, RegExp][] = [
-    ['这不是 json', /valid JSON/],
-    ['123', /not an object/],
-    [JSON.stringify({ v: 999 }), /version mismatch/],
-    [JSON.stringify({ v: SAVE_VERSION }), /no map size/],
+    ['这不是 json', /valid JSON/i],
+    ['123', /not an object/i],
+    [JSON.stringify({ v: 999 }), /version mismatch/i],
+    [JSON.stringify({ v: SAVE_VERSION }), /no map size/i],
   ];
 
   for (const [input, pattern] of cases) {
@@ -124,7 +124,7 @@ test('坏文件抛的是人话，不是崩溃，而且中英文都有', () => {
   const g = played();
   const broken = JSON.parse(serialize(g));
   broken.map.terrain = broken.map.terrain.slice(0, 10);
-  assert.throws(() => parseSave(JSON.stringify(broken)), /terrain data length/);
+  assert.throws(() => parseSave(JSON.stringify(broken)), /terrain data length/i);
 });
 
 test('文件名带回合数，且只含文件系统安全的字符', () => {

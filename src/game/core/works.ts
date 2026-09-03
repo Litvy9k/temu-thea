@@ -25,18 +25,18 @@ export interface Facility {
 /** 每种设施只能有一座，效果直接写死在读它的地方，不做通用的加成管线 */
 export const FACILITIES: Record<FacilityId, Facility> = {
   store: {
-    label: { en: 'store', zh: '仓库' },
-    desc: { en: 'food upkeep −1 per turn', zh: '每回合食物消耗 −1' },
+    label: { en: 'Store', zh: '仓库' },
+    desc: { en: 'Food upkeep −1 per turn', zh: '每回合食物消耗 −1' },
     cost: { wood: 12, stone: 6 },
   },
   workshop: {
-    label: { en: 'workshop', zh: '工棚' },
-    desc: { en: 'unlocks crafting', zh: '解锁工具制作' },
+    label: { en: 'Workshop', zh: '工棚' },
+    desc: { en: 'Unlocks crafting', zh: '解锁工具制作' },
     cost: { wood: 14, stone: 10 },
   },
   watchtower: {
-    label: { en: 'watchtower', zh: '了望塔' },
-    desc: { en: 'camp sight +1', zh: '营地视野 +1' },
+    label: { en: 'Watchtower', zh: '了望塔' },
+    desc: { en: 'Camp sight +1', zh: '营地视野 +1' },
     cost: { wood: 10, stone: 8 },
   },
 };
@@ -65,13 +65,13 @@ export interface Tool {
  */
 export const TOOLS: Record<ToolId, Tool> = {
   axe: {
-    label: { en: 'stone axe', zh: '石斧' },
+    label: { en: 'Stone axe', zh: '石斧' },
     cost: { wood: 6, stone: 4 },
     boosts: ['wood'],
     bonus: 10,
   },
   hoe: {
-    label: { en: 'bone hoe', zh: '骨锄' },
+    label: { en: 'Bone hoe', zh: '骨锄' },
     cost: { wood: 4, stone: 6 },
     boosts: ['food'],
     bonus: 10,

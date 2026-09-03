@@ -10,9 +10,9 @@
 export type ResourceId = 'food' | 'wood' | 'stone';
 
 export const RESOURCES: Record<ResourceId, { label: { en: string; zh: string }; glyph: string }> = {
-  food: { label: { en: 'food', zh: '食物' }, glyph: '✦' },
-  wood: { label: { en: 'wood', zh: '木材' }, glyph: '❙' },
-  stone: { label: { en: 'stone', zh: '石料' }, glyph: '◆' },
+  food: { label: { en: 'Food', zh: '食物' }, glyph: '✦' },
+  wood: { label: { en: 'Wood', zh: '木材' }, glyph: '❙' },
+  stone: { label: { en: 'Stone', zh: '石料' }, glyph: '◆' },
 };
 
 export type TerrainId =
@@ -57,63 +57,63 @@ export interface Terrain {
  */
 export const TERRAIN: Record<TerrainId, Terrain> = {
   ocean: {
-    label: { en: 'ocean', zh: '深海' },
+    label: { en: 'Ocean', zh: '深海' },
     moveCost: null,
     yields: {},
     sight: 0,
     fill: '#0a1f2b', glyph: '≈', ink: '#16465c',
   },
   shallow: {
-    label: { en: 'shallow', zh: '浅滩' },
+    label: { en: 'Shallows', zh: '浅滩' },
     moveCost: null,
     yields: { food: 6 },
     sight: 0,
     fill: '#10394a', glyph: '~', ink: '#2b7391',
   },
   marsh: {
-    label: { en: 'marsh', zh: '沼泽' },
+    label: { en: 'Marsh', zh: '沼泽' },
     moveCost: 3,
     yields: { food: 2, wood: 2 },
     sight: 1,
     fill: '#26361f', glyph: '"', ink: '#5c7a44',
   },
   grass: {
-    label: { en: 'grassland', zh: '草原' },
+    label: { en: 'Grassland', zh: '草原' },
     moveCost: 1,
     yields: { food: 4 },
     sight: 2,
     fill: '#37501f', glyph: '·', ink: '#6f9440',
   },
   forest: {
-    label: { en: 'forest', zh: '森林' },
+    label: { en: 'Forest', zh: '森林' },
     moveCost: 2,
     yields: { food: 1, wood: 5 },
     sight: 1,
     fill: '#1e3618', glyph: '♣', ink: '#4f7c37',
   },
   hills: {
-    label: { en: 'hills', zh: '丘陵' },
+    label: { en: 'Hills', zh: '丘陵' },
     moveCost: 2,
     yields: { food: 1, stone: 4 },
     sight: 3,
     fill: '#4a4227', glyph: '∩', ink: '#8a7846',
   },
   mountain: {
-    label: { en: 'mountains', zh: '山地' },
+    label: { en: 'Mountains', zh: '山地' },
     moveCost: null,
     yields: { stone: 6 },
     sight: 0,
     fill: '#3d3d45', glyph: '▲', ink: '#767683',
   },
   desert: {
-    label: { en: 'desert', zh: '荒漠' },
+    label: { en: 'Desert', zh: '荒漠' },
     moveCost: 1,
     yields: {},
     sight: 3,
     fill: '#5c4e2c', glyph: '˙', ink: '#9c8752',
   },
   tundra: {
-    label: { en: 'tundra', zh: '苔原' },
+    label: { en: 'Tundra', zh: '苔原' },
     moveCost: 1,
     yields: { food: 2 },
     sight: 3,

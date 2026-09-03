@@ -98,10 +98,15 @@ carry a `v` field; a mismatch is rejected outright rather than force-parsed.
 
 **Both languages are hardcoded at the point of use; the game never owns the
 switch.** `i18n.js`, `terrain.ts`, `works.ts` and the `SaveError` throws all
-carry `{ en, zh }` pairs inline — no translation files, no i18n library. `Game`
-and `SaveControls` each take a `lang` prop and the host decides its value. The
-dev shell has a toggle purely to stand in for the site's global switch; it is
-not part of the game and goes away with `App.jsx`.
+carry `{ en, zh }` pairs inline — no translation files, no i18n library, no
+provider. `Game` and `SaveControls` each take a `lang` prop and the host decides
+its value. There is deliberately **no language control inside the game**; see the
+integration section below for the exact contract.
+
+English copy is **sentence case** — first word capitalised, the rest lower, never
+Title Case. The one exception is a word used as a suffix after a number or as a
+parenthetical annotation (`1 idle`, `(tools +20)`), which stays lowercase: a
+capital there reads as the start of a new sentence.
 
 **`game/` must not depend on the host site.** Do not import the site's i18n
 instance, do not use its CSS variables, do not touch `body` / `:root` globals.
@@ -184,11 +189,78 @@ show straight through and text lands on text.
 
 ## When integrating into dope-website
 
-The game goes in `frontend/src/game/`, with its route added **before** the `*`
-catch-all in `App.jsx`. Drop the `src/App.jsx` dev shell — the site only needs to
-mount `<Game />` and `<SaveControls />`, and to pass its own `lang` down.
+### What to mount
 
-Several notes from that repo's own `CLAUDE.md` apply directly:
+Copy `src/game/` into `frontend/src/game/` as-is and throw away `src/App.jsx` —
+the site has its own layout and routing. Two components go on the page:
+
+```jsx
+import { useRef, useState } from 'react';
+import Game from '../game/ui/Game.jsx';
+import SaveControls from '../game/ui/SaveControls.jsx';
+
+function GamePage({ lang }) {              // lang comes from the site's own state
+  const [session, setSession] = useState(() => ({ id: 0, seed: null, state: null }));
+  const stateRef = useRef(null);           // Game writes the live state here
+
+  return (
+    <>
+      <SaveControls
+        lang={lang}
+        getState={() => stateRef.current}
+        onNew={() => setSession((s) => ({ id: s.id + 1, seed: null, state: null }))}
+        onLoad={(state) => setSession((s) => ({ id: s.id + 1, seed: null, state }))}
+      />
+      <div style={{ height: 'min(80vh, 900px)' }}>
+        <Game
+          key={session.id}                 // changing the key restarts or loads
+          seed={session.seed}              // null = random
+          initialState={session.state}     // set by onLoad, otherwise null
+          stateRef={stateRef}
+          lang={lang}
+        />
+      </div>
+    </>
+  );
+}
+```
+
+`SaveControls` is optional and can sit anywhere on the page — it only needs
+`getState` and the two callbacks. Its CSS sets layout only, no colours or
+borders, so it inherits whatever button styling surrounds it.
+
+### The language interface
+
+| | |
+| --- | --- |
+| Prop | `lang`, on both `Game` and `SaveControls` |
+| Values | `'en'` or `'zh'` |
+| Default | `'zh'` if omitted |
+| Where strings live | `game/i18n.js`, plus `{ en, zh }` labels in `terrain.ts`, `works.ts` and the `SaveError` throws |
+
+Pass the site's current language straight through; the game renders it and owns
+nothing else about language.
+
+**Changing `lang` must not change `key`.** `lang` is only read during render, so
+switching it re-renders in place and a game in progress survives untouched.
+Remount on a language switch and the player loses their run.
+
+Adding a third language means adding a third key to every `{ en, zh }` pair.
+There is no fallback chain beyond `t()` falling back to `en`.
+
+### Sizing
+
+`Game` fills its parent (`width: 100%; height: 100%`, `min-height: 420px`), so
+**the parent must have a definite height**. A bare `<div>` in normal flow
+collapses and the canvas comes out zero pixels tall. Give it a fixed height, a
+viewport unit, or a flex/grid track.
+
+Layout mode comes from the width of the game's own container, not the viewport:
+under 720px it switches to the narrow layout, and between 720 and 988px the camp
+panel overlays instead of taking a column. Dropping the game into a narrow column
+on a wide screen therefore does the right thing with no configuration.
+
+### Notes from that repo's own CLAUDE.md that apply directly
 
 - **The font subset is generated at build time by scanning `content/` and
   `src/`.** Chinese written literally in the source is fine, but **text assembled
@@ -196,12 +268,21 @@ Several notes from that repo's own `CLAUDE.md` apply directly:
   scanned, so it renders with missing glyphs in production — and never locally,
   where the full font is installed. All game copy is literal today; watch this
   when adding generated text.
-- z-index: the site's bottom bar is 1000 and tooltips are 1200; game overlays
-  have to fit that scheme
-- Do not use `100vw` (it includes the scrollbar); measure canvas size with
-  `clientWidth`
+- **z-index:** the site's bottom bar is 1000 and tooltips are 1200. Everything the
+  game draws stays inside its own container and never exceeds z-index 2, so it
+  sits under both. Revisit this if the game ever needs a real modal.
+- **Do not use `100vw`** (it includes the scrollbar). The game measures itself
+  with `clientWidth` through a ResizeObserver and needs no viewport units.
 - The site is plain JS with oxlint, which is why **core logic is `.ts` and React
   components are `.jsx`** — its lint only ever sees `.jsx` and needs no
-  typescript-eslint
+  typescript-eslint. Keep that split when adding files.
+- `tsconfig.json` and the `typecheck` script have to come along too, otherwise
+  the `.ts` files are only type-*stripped* and never type-*checked*.
 - The preview environment does not composite frames, so time-based animation
-  cannot be verified there; only end states can
+  cannot be verified there; only end states can.
+
+### What the game does not need
+
+No backend, no API, no environment variables, no web fonts, no images, no
+external requests of any kind. The build is JS + CSS only, and every glyph on
+the map is a text character drawn to canvas with the system monospace stack.
