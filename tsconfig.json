@@ -1,0 +1,23 @@
+{
+  // 只做类型检查，不产出文件 —— 打包是 Vite 的事，它只剥类型不查类型。
+  // 没有这一步的话，TS 在这个项目里就只是好看的注释：draw.ts 曾经从
+  // map.ts 导入一个其实定义在 hex.ts 的函数，一路到浏览器才炸。
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "checkJs": false,
+    "types": ["node"]
+  },
+  "include": ["src", "scripts"]
+}

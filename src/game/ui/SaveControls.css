@@ -1,0 +1,19 @@
+/*
+ * 只管排布，不定颜色和边框 —— 这组按钮要放进宿主自己的 chrome 里，
+ * 让它跟着周围的样式走，别自带一套跟站点打架。
+ */
+.hg-save {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hg-save button {
+  white-space: nowrap;
+}
+
+.hg-save__error {
+  color: #ff8b6b;
+  font-size: 12px;
+}

@@ -1,0 +1,200 @@
+/*
+ * 基础层：容器、canvas、配色变量，以及两套布局共用的零件。
+ * 摆放规则不在这里 —— 那是 DesktopLayout.css / MobileLayout.css 的事。
+ *
+ * 全部选择器都挂在 .hexgame 下面，不碰 body / :root ——
+ * 这个目录以后要整个搬进个人站，泄漏出去的全局样式会砸到别人的页面。
+ */
+.hexgame {
+  --ink: #cfe3d8;
+  --ink-dim: #6f8a80;
+  --line: rgba(120, 200, 175, 0.22);
+  --panel: rgba(6, 16, 20, 0.88);
+  --accent: #7ce6be;
+  --warn: #ff8b6b;
+  --idle: #ffc98c;
+  /* 可点区域的下限 */
+  --tap: 30px;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  overflow: hidden;
+  background: #05090b;
+  color: var(--ink);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  user-select: none;
+  -webkit-user-select: none;
+  /* 长按不要弹出 iOS 的系统菜单，点击不要闪蓝框 */
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * 点击区尺寸跟着**指针类型**走，不跟着布局走 —— 这是两件事。
+ * iPad 横屏够宽，该用桌面布局，但手指还是手指，按钮仍然要够大。
+ */
+@media (pointer: coarse) {
+  .hexgame {
+    --tap: 44px;
+  }
+}
+
+/*
+ * 舞台 = 地图 + 压在上面的面板。营地面板是它的兄弟，不是子节点 ——
+ * 宽屏时两者在 flex 流里并排，地图被挤窄；窄屏时面板绝对定位盖满。
+ */
+.hexgame {
+  display: flex;
+}
+
+.hg-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.hexgame canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  /*
+   * 关键：不交给浏览器任何默认手势。
+   * 不写这一条，手指在 canvas 上一划就被浏览器拿去滚页面/缩放，
+   * pointermove 根本不会连续送到，平移和双指缩放全部失效 ——
+   * 而在桌面上用鼠标测完全正常，所以只测桌面发现不了。
+   */
+  touch-action: none;
+}
+
+.hexgame canvas.dragging {
+  cursor: grabbing;
+}
+
+/* ---------------------------------------------------------------- 共用零件 */
+
+.hexgame .hg-dim {
+  color: var(--ink-dim);
+}
+
+.hexgame .hg-warn {
+  color: var(--warn);
+}
+
+.hexgame .hg-idle {
+  color: var(--idle);
+}
+
+.hexgame .hg-sep {
+  height: 1px;
+  background: var(--line);
+}
+
+.hexgame b {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.hexgame button {
+  padding: 6px 10px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  font: inherit;
+  cursor: pointer;
+  /* 去掉移动端点击的 300ms 延迟 */
+  touch-action: manipulation;
+}
+
+.hexgame button:hover:not(:disabled) {
+  color: #05090b;
+  background: var(--accent);
+}
+
+.hexgame button:active:not(:disabled) {
+  color: #05090b;
+  background: var(--accent);
+}
+
+.hexgame button:disabled {
+  color: var(--ink-dim);
+  cursor: default;
+}
+
+.hexgame .hg-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hexgame .hg-actions button {
+  flex: 1;
+  min-height: var(--tap);
+}
+
+/*
+ * 营地入口和两个主按钮一样三等分。窄屏上它在拇指区，等宽比按内容收窄
+ * 更好点；宽屏根本不用这个按钮（那边是右上角的 hg-camp-open）。
+ */
+.hexgame .hg-actions__camp {
+  white-space: nowrap;
+}
+
+/* 拿到工具的人用和地图上绿点同一个颜色，两处能对上 */
+.hexgame .hg-geared {
+  color: var(--accent);
+}
+
+/* 资源：名字 + 存量 + 上回合收支 */
+.hexgame .hg-res {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.hexgame .hg-res__income {
+  color: var(--ink-dim);
+}
+
+.hexgame .hg-res__income.up {
+  color: var(--accent);
+}
+
+.hexgame .hg-res__income.down {
+  color: var(--warn);
+}
+
+.hexgame .hg-yield + .hg-yield {
+  margin-left: 6px;
+}
+
+.hexgame .hg-tile__head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+/* 人力增减 */
+.hexgame .hg-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hexgame .hg-stepper button {
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.hexgame .hg-stepper__count {
+  min-width: 46px;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 600;
+}

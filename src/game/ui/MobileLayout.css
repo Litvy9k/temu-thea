@@ -1,0 +1,82 @@
+/*
+ * 手机布局：上下通栏，中间整块留给地图。
+ *
+ * 刻意不做浮层 —— 手指会挡住自己要点的地方，而浮层压住的正好是营地那一圈
+ * 作业格。上下各占一条，中间那块地图就永远是干净的。
+ */
+.hexgame--narrow .hg-m-status,
+.hexgame--narrow .hg-m-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--panel);
+  backdrop-filter: blur(2px);
+}
+
+.hexgame--narrow .hg-m-status {
+  top: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hexgame--narrow .hg-m-status__line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.hexgame--narrow .hg-m-status__line + .hg-m-status__line {
+  margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------- 拇指区 */
+
+.hexgame--narrow .hg-m-dock {
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  /* 刘海屏 / 手势条：底部留出安全区，否则按钮会被系统条压掉一截 */
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+}
+
+.hexgame--narrow .hg-m-sheet {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hexgame--narrow .hg-m-sheet__facts {
+  flex: 1;
+  min-width: 0;
+}
+
+.hexgame--narrow .hg-m-notice {
+  text-align: center;
+}
+
+/*
+ * 底部按钮做成通栏大块。这一条和桌面版最不一样：桌面上按钮是 6px 内边距的
+ * 小条，这里必须是能盲点的尺寸 —— 玩家看着地图，手指往下够。
+ */
+.hexgame--narrow .hg-actions button {
+  min-height: var(--tap);
+  font-size: 14px;
+}
+
+/* 手机上营地面板盖满整块：并排放不下，而建造时本来也不需要盯着地图 */
+.hexgame--narrow .hg-camp {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /*
+   * 必须**不透明**。共用的 --panel 是半透明的，那是给浮在地图角上的小面板
+   * 用的；盖满整屏时底下的地图和状态条会整个透出来，字叠在字上没法读。
+   * 宽屏那一栏在地图旁边不在地图上，所以它照用 --panel。
+   */
+  background: #05090b;
+}

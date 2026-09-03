@@ -1,0 +1,52 @@
+/* 只是开发外壳的样式。游戏本体的样式全在 game/ui/Game.css 里，不依赖这里 */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #05090b;
+  color: #cfe3d8;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.shell__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(120, 200, 175, 0.22);
+}
+
+.shell__bar button {
+  padding: 4px 10px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(120, 200, 175, 0.22);
+  font: inherit;
+  cursor: pointer;
+}
+
+.shell__stage {
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 640px) {
+  .shell__bar button {
+    white-space: nowrap;
+  }
+}

@@ -1,0 +1,76 @@
+/*
+ * 桌面布局：浮动面板压在地图四角。
+ * 只在有鼠标、且容器够宽时使用 —— 浮层会挡住地图，鼠标能绕开，手指不能。
+ */
+.hexgame--wide .hg-panel {
+  position: absolute;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(2px);
+}
+
+.hexgame--wide .hg-hud {
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 200px;
+}
+
+.hexgame--wide .hg-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  white-space: nowrap;
+}
+
+/* HUD 里的资源行要撑满，让存量和收支右对齐成一列 */
+.hexgame--wide .hg-row .hg-res {
+  flex: 1;
+  justify-content: space-between;
+}
+
+.hexgame--wide .hg-row .hg-res__name {
+  margin-right: auto;
+}
+
+.hexgame--wide .hg-tile {
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.hexgame--wide .hg-tile .hg-tile__head {
+  justify-content: space-between;
+}
+
+.hexgame--wide .hg-tile .hg-stepper {
+  margin-top: 2px;
+}
+
+.hexgame--wide .hg-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  color: var(--ink-dim);
+  pointer-events: none;
+}
+
+/* 营地入口：右上角独立按钮，不塞进左上的 HUD ——
+   HUD 是每回合都在读的仪表盘，混进一个几十回合才点一次的入口会拖慢阅读 */
+.hexgame--wide .hg-camp-open {
+  top: 12px;
+  right: 12px;
+  cursor: pointer;
+}
+
+/* 面板在 flex 流里占一栏，把地图挤窄而不是盖住 */
+.hexgame--wide .hg-camp {
+  flex: 0 0 268px;
+  border-left: 1px solid var(--line);
+}
