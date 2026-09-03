@@ -1,0 +1,48 @@
+name: CI
+
+# 这个仓库不部署。游戏是以 git 子模块的形式挂在个人站仓库里的，
+# 由站点的 Vite 直接编译 src/game 的源码，产物是站点的 dist —— 所以这里
+# 没有独立产物可发。上线动作发生在站点仓库：那边 bump 子模块指针再 push，
+# 站点 CI 才会带着新版本重新部署。
+#
+# 这里负责的是"别让坏代码走到那一步"：站点侧只跑 eslint，且明确忽略了
+# vendor/（游戏有自己的 oxlint 规则），游戏的类型和测试站点一概不看。
+# 这些检查不在这里跑，就没有任何地方会跑。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 测试脚本用的是 node --experimental-strip-types，直接跑 .ts。
+          # 22 需要这个 flag，23 起默认就能剥类型 —— 钉在 22 是为了和本地
+          # 一致，将来升 node 时记得那个 flag 可以一并去掉
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # 站点是编译源码而不是消费这里的 dist，所以这一步不产出什么。
+      # 留着是因为它能抓到"改完还能不能打包"这类问题，比如引入了一个
+      # 只在 node 里存在的依赖 —— 那种错误在 test 里是看不出来的
+      - run: npm run build
