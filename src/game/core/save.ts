@@ -17,6 +17,31 @@ import type { TerrainId } from './terrain.ts';
 export const SAVE_VERSION = 1;
 
 /**
+ * 读档失败要说给玩家听，所以消息得有中英两种。
+ *
+ * 双语直接写在抛出的地方，不走查表 —— 这些消息只有这一个文件在用，
+ * 抽成 key 反而要在两处之间来回对照才能看懂一条错误说的是什么。
+ * detail 里只放数字，不用翻译。
+ */
+export interface Bilingual {
+  en: string;
+  zh: string;
+}
+
+export class SaveError extends Error {
+  readonly msg: Bilingual;
+  /** 只放数字之类不用翻译的补充信息 */
+  readonly detail?: string;
+
+  constructor(msg: Bilingual, detail?: string) {
+    super(msg.en);
+    this.name = 'SaveError';
+    this.msg = msg;
+    this.detail = detail;
+  }
+}
+
+/**
  * 地形的字符编码。**只能往后追加，不能改顺序也不能删** ——
  * 这个数组的下标就是存档里那个字符的含义，动了它等于把老存档的地图打乱。
  */
@@ -73,7 +98,7 @@ export function serialize(state: GameState): string {
   for (let i = 0; i < map.tiles.length; i += 1) {
     const tile = map.tiles[i];
     const code = TERRAIN_CODES.indexOf(tile.terrain);
-    if (code < 0) throw new Error(`地形 ${tile.terrain} 没有编码，请先加进 TERRAIN_CODES`);
+    if (code < 0) throw new Error(`terrain "${tile.terrain}" has no code; add it to TERRAIN_CODES`);
 
     terrain += String.fromCharCode(FIRST_CODE + code);
     explored += tile.explored ? '1' : '0';
@@ -126,32 +151,48 @@ export function parseSave(text: string): GameState {
   try {
     file = JSON.parse(text);
   } catch {
-    throw new Error('这不是一个有效的 JSON 文件');
+    throw new SaveError({ en: 'not a valid JSON file', zh: '这不是一个有效的 JSON 文件' });
   }
 
-  if (!file || typeof file !== 'object') throw new Error('存档内容不是一个对象');
+  if (!file || typeof file !== 'object') {
+    throw new SaveError({ en: 'save content is not an object', zh: '存档内容不是一个对象' });
+  }
   if (file.v !== SAVE_VERSION) {
-    throw new Error(`存档版本是 ${file.v ?? '未知'}，当前只认 ${SAVE_VERSION}`);
+    throw new SaveError(
+      { en: 'save version mismatch', zh: '存档版本对不上' },
+      `${file.v ?? '?'} → ${SAVE_VERSION}`,
+    );
   }
 
   const m = file.map;
   if (!m || typeof m.width !== 'number' || typeof m.height !== 'number') {
-    throw new Error('存档里没有地图尺寸');
+    throw new SaveError({ en: 'no map size in the save', zh: '存档里没有地图尺寸' });
   }
 
   const n = m.width * m.height;
   if (typeof m.terrain !== 'string' || m.terrain.length !== n) {
-    throw new Error(`地形数据长度不对：应该是 ${n}，实际是 ${m.terrain?.length ?? 0}`);
+    throw new SaveError(
+      { en: 'terrain data length does not match the map', zh: '地形数据长度和地图对不上' },
+      `${m.terrain?.length ?? 0} / ${n}`,
+    );
   }
   if (typeof m.explored !== 'string' || m.explored.length !== n) {
-    throw new Error('探明数据的长度和地图对不上');
+    throw new SaveError({
+      en: 'explored data length does not match the map',
+      zh: '探明数据长度和地图对不上',
+    });
   }
 
   const tiles: Tile[] = new Array(n);
   for (let i = 0; i < n; i += 1) {
     const code = m.terrain.charCodeAt(i) - FIRST_CODE;
     const id = TERRAIN_CODES[code];
-    if (!id) throw new Error(`第 ${i} 格的地形编码无法识别`);
+    if (!id) {
+      throw new SaveError(
+        { en: 'unrecognised terrain code', zh: '有一格的地形编码无法识别' },
+        `#${i}`,
+      );
+    }
 
     tiles[i] = {
       terrain: id,
@@ -164,8 +205,12 @@ export function parseSave(text: string): GameState {
 
   const map: GameMap = { width: m.width, height: m.height, seed: m.seed ?? 0, tiles };
 
-  if (!file.party || typeof file.party.people !== 'number') throw new Error('存档里没有队伍数据');
-  if (!file.works || !file.works.tools) throw new Error('存档里没有工事数据');
+  if (!file.party || typeof file.party.people !== 'number') {
+    throw new SaveError({ en: 'no party data in the save', zh: '存档里没有队伍数据' });
+  }
+  if (!file.works || !file.works.tools) {
+    throw new SaveError({ en: 'no works data in the save', zh: '存档里没有工事数据' });
+  }
 
   const state: GameState = {
     map,

@@ -1,154 +1,207 @@
 # temu-thea
 
-六边形网格的大地图生存游戏。React 19 + Vite，纯静态、无后端、无任何网络请求。
-核心逻辑 TypeScript，React 组件 JSX。
+A hex-grid survival game on a big procedural map. React 19 + Vite, fully
+static — no backend, no network requests. Core logic in TypeScript, React
+components in JSX.
 
-玩法和目录见 `README.md`。这份文件只记**为什么这么做**，以及**不这么做会怎样**。
+Gameplay and directory layout are in `README.md`. This file records **why each
+decision was made**, and **what goes wrong if you undo it**.
 
-## 架构
+Source comments are in Chinese; these docs are in English.
+
+## Architecture
 
 ```
-src/game/            可移植边界：整个目录能直接搬进别的 React 项目
-  core/              纯逻辑，不碰 DOM，能在 node 里直接跑
-    hex.ts           六边形数学
-    map.ts           地图存储（odd-r 一维数组）与噪声生成
-    terrain.ts       地形表
-    works.ts         设施与工具表
-    state.ts         状态与规则
-    save.ts          存档序列化
-  render/            camera.ts 相机与裁剪，draw.ts Canvas 绘制
+src/game/            portable boundary: drops into any React project as-is
+  core/              pure logic, no DOM, runs directly under node
+    hex.ts           hex math
+    map.ts           map storage (odd-r flat array) and noise generation
+    terrain.ts       terrain table
+    works.ts         facility and tool tables
+    state.ts         state and rules
+    save.ts          save serialisation
+  render/            camera.ts camera and culling, draw.ts canvas drawing
   ui/
-    useHexGame.js    交互逻辑，两套布局共用这一个"大脑"
-    Game.jsx         只做四件事：挂 canvas、量宽度、选布局、摆营地面板
-    DesktopLayout    浮动面板  /  MobileLayout  上下通栏 + 拇指区
-    CampPanel        设施 + 制作，按需打开的抽屉
-    parts.jsx        两套布局共用的展示零件
-    SaveControls     新游戏 / 存档 / 读档
-src/App.jsx          开发外壳，集成时丢掉
-scripts/             dump-map.ts 打印 ASCII 地图，sim.ts 跑经济账本
+    useHexGame.js    interaction logic — one "brain" shared by both layouts
+    Game.jsx         four jobs only: mount canvas, measure width, pick layout,
+                     place the camp panel
+    DesktopLayout    floating panels  /  MobileLayout  top strip + thumb dock
+    CampPanel        facilities + crafting, an on-demand drawer
+    parts.jsx        display pieces shared by both layouts
+    SaveControls     new game / save / load
+src/App.jsx          dev shell, thrown away on integration
+scripts/             dump-map.ts prints an ASCII map, sim.ts runs the economy ledger
 ```
 
-## 定下的规则
+## Settled rules
 
-**轴向坐标 `{q, r}` 是唯一的逻辑坐标。** 立方体坐标只在算距离和取整时临时用，
-偏移坐标只在存进矩形数组时用，像素坐标只在渲染和处理鼠标时用。跨过边界立刻
-转回轴向 —— 它们都是"两个数字"，类型系统帮不上忙，混用了也不报错，只是画歪。
+**Axial `{q, r}` is the only logical coordinate.** Cube coordinates appear only
+inside distance and rounding, offset coordinates only when indexing the flat
+array, pixel coordinates only in rendering and pointer handling. Convert back
+at every boundary — all four are "two numbers", the type system cannot help,
+and mixing them does not throw. It just draws wrong.
 
-**游荡与扎营是两种互斥状态。** `camp === null` 能走不能干活，`camp !== null`
-能干活不能走。**点击的含义只在 `onPointerUp` 一处判断**，别的地方不要再各判一次。
+**Roaming and camped are mutually exclusive states.** `camp === null` can move
+but cannot work; `camp !== null` is the reverse. **What a click means is decided
+in exactly one place, `onPointerUp`.** Do not re-derive it elsewhere.
 
-**采集速度只有一个口径：`workRateAt()`。** 地格面板、进度条、`endTurn` 全读它。
-两处各算各的在画面上完全看不出来，只会表现为"面板显示 60 但进度只走了 40"。
-`works.test.ts` 里有一条测试专门钉住这件事。
+**Gathering speed has one source of truth: `workRateAt()`.** The tile panel, the
+progress bar and `endTurn` all read it. Two implementations are invisible on
+screen and surface only as "the panel says 60 but the bar moved 40". There is a
+test in `works.test.ts` pinning them together.
 
-**设施和工具挂在队伍上（`state.works`），不挂在营地上（`state.camp`）。**
-拔营时 `camp` 置 null，`works` 跟着队伍走，于是"拔营再扎营后保留"是数据模型的
-自然结果，**不需要任何搬运逻辑** —— 那种"拔营时先把设施存起来"的地方正是以后
-会漏掉某个字段的位置。这是刻意为游戏性做的取舍，叙事上理解成随队工事和行装。
+**Facilities and tools hang off the party (`state.works`), not the camp
+(`state.camp`).** Breaking camp nulls `camp` while `works` travels with the
+party, so "they survive re-camping" falls out of the data model and needs **no
+carry-over logic** — a "stash the facilities before breaking camp" step is
+exactly where a field gets forgotten later. This is a deliberate trade of
+realism for playability; read it as gear the expedition packs up and takes.
 
-**交互逻辑只有一套，布局有两套。** 桌面和手机的信息结构不同（浮动面板 vs
-上下通栏），但拖拽阈值、双指缩放、点击语义是同一套规则，全在 `useHexGame.js`。
-复制一份到两个布局里，迟早会改了一边忘另一边。
+**One set of interaction logic, two layouts.** Desktop and mobile present
+information differently, but drag threshold, pinch zoom and click semantics are
+the same rules and all live in `useHexGame.js`. Copied into two layouts, one
+eventually falls behind.
 
-**布局按容器宽度切，点击区大小按 `pointer: coarse` 切。** 这是两件事。量容器
-不量视口，是因为游戏要嵌进个人站的某个容器 —— 落在窄栏里时即使桌面浏览器也该
-用窄布局，`matchMedia` 判视口在那种情况下会给出错误答案。而 iPad 横屏够宽该用
-宽布局，但手指还是手指，按钮仍要 44px。
+**Layout switches on container width; tap-target size switches on
+`pointer: coarse`.** Two different things. Container not viewport, because the
+game gets embedded in a column on a personal site — a narrow column deserves the
+narrow layout even in a desktop browser, and `matchMedia` on the viewport would
+answer wrong there. Meanwhile an iPad in landscape is wide enough for the wide
+layout, but fingers are still fingers, so buttons stay 44px.
 
-**地形表是玩法的唯一真相。** 走哪里、在哪扎营、能采到什么，全是在读
-`terrain.ts`。有一条硬规则：**没有一种地形同时富含食物和木材** —— 只挨着草原的
-营地会断柴，只挨着森林的会饿死，选址必须两样都要。这是"在哪扎营"这个决定的
-全部分量。以后加资源种类时守住这条：一处采不全，才有搬家的理由。
+**The terrain table is the single source of gameplay truth.** Where you can
+walk, where you can camp and what you can gather all read `terrain.ts`. One hard
+rule: **no terrain is rich in both food and wood** — a camp with only grassland
+runs out of fuel, one with only forest starves, so a site must have both. That
+is the entire weight of the "where to camp" decision. Keep this rule when adding
+resource types: no single site yielding everything is what gives a reason to
+move.
 
-**`yields` 是"进度条填满一次的产出"，不是每回合产出。** 每人每回合推进 20 点、
-满值 40，所以长期看**一个人平均每回合完成 0.5 次采集**，单人产出 = yields / 2。
-定数值时按这个折算，照字面数字估会差一倍。
+**`yields` is "output per completed bar", not per turn.** Each person advances
+20 per turn against a goal of 40, so over time **one person completes 0.5
+harvests per turn** and single-person output is `yields / 2`. Estimate from the
+literal numbers and you will be off by a factor of two.
 
-**地图配比是设计值不是涌现值。** 地形阈值按**分位数**切（`COMPOSITION`），不是
-按固定高度阈值。fbm 是多层噪声取平均，输出天然向 0.5 聚集，拿绝对阈值切两端
-几乎切不到东西 —— 实测山地会是 0%、丘陵 1.6%，而且换个种子配比就完全变样，
-可能抽到一张全是海的废图。改成分位数之后每张图的陆地占比都是稳定的。
+**Map composition is designed, not emergent.** Terrain thresholds are cut by
+**quantile** (`COMPOSITION`), not by fixed elevation values. fBm averages
+several octaves, so its output clusters around 0.5 and absolute thresholds barely
+reach the tails — measured, that gave 0% mountains and 1.6% hills, and the mix
+changed completely with every seed, up to rolling a map that is almost all
+ocean. With quantiles, land fraction is stable on every map.
 
-**存档不靠种子重建地形。** 地形照原样存下来（压缩后约 6KB）。靠种子重建能压到
-几百字节，但以后一动地形表或噪声参数，所有老存档的地图都会**悄悄变样** ——
-不报错，就是那张图不一样了。存档带 `v` 版本号，对不上直接拒绝，不硬解。
-`save.ts` 里的 `TERRAIN_CODES` **只能往后追加，不能改顺序也不能删**。
+**Saves do not rebuild terrain from the seed.** Terrain is stored as-is (about
+6KB compressed). Rebuilding from a seed would fit in a few hundred bytes, but
+then any tweak to the terrain table or the noise parameters would **silently
+change the map** in every old save — no error, just a different world. Saves
+carry a `v` field; a mismatch is rejected outright rather than force-parsed.
+`TERRAIN_CODES` in `save.ts` is **append-only: never reorder, never delete**.
 
-**`game/` 不许依赖宿主站点。** 不 import 站点的 i18n 实例、不用站点的 CSS 变量、
-不碰 `body` / `:root` 全局样式。文案用自己的 `{ en, zh }` 字典，形状和站点一致，
-接过去时换掉 `t()` 的实现就行。
+**Both languages are hardcoded at the point of use; the game never owns the
+switch.** `i18n.js`, `terrain.ts`, `works.ts` and the `SaveError` throws all
+carry `{ en, zh }` pairs inline — no translation files, no i18n library. `Game`
+and `SaveControls` each take a `lang` prop and the host decides its value. The
+dev shell has a toggle purely to stand in for the site's global switch; it is
+not part of the game and goes away with `App.jsx`.
 
-## 踩过的坑（都是排查很久才找到的）
+**`game/` must not depend on the host site.** Do not import the site's i18n
+instance, do not use its CSS variables, do not touch `body` / `:root` globals.
 
-**canvas 必须写 `touch-action: none`。** 不写的话手指在地图上一划就被浏览器拿去
-滚页面，`pointermove` 根本不会连续送到，平移和双指缩放全部失效 —— 而**桌面上
-用鼠标测完全正常**，只测桌面发现不了。
+## Things that bit us (each took a while to find)
 
-**`Math.round(-0.4)` 返回 `-0`。** 坐标里混进 `-0` 之后 `deepStrictEqual` 和
-`Object.is` 判不等，但 `===` 说相等，调试时看到 `{ q: -12, r: -0 }` 极其费解。
-已在 `hex.ts` 的 `round()` 里归一化，别让它流出那个函数。
+**Canvas needs `touch-action: none`.** Without it a finger drag gets taken by the
+browser to scroll the page, `pointermove` never arrives continuously, and panning
+and pinch zoom both stop working — while **a mouse on desktop behaves
+perfectly**, so desktop-only testing never catches it.
 
-**`ring()` 依赖 `DIRECTIONS` 是逆时针顺序。** 环绕算法要求"沿方向 i 走 n 步正好
-走完第 i 条边"，换成顺时针就得反着遍历。改这个数组之前先看那条测试。表现出来
-只是"范围边框有点怪"，不报错。
+**`Math.round(-0.4)` returns `-0`.** With `-0` in a coordinate,
+`deepStrictEqual` and `Object.is` report inequality while `===` reports equality,
+and `{ q: -12, r: -0 }` in a debugger is baffling. Normalised inside `round()` in
+`hex.ts` — do not let it escape that function.
 
-**TS 在 Vite 里默认只是好看的注释。** Vite 只剥类型不查类型，`draw.ts` 曾经从
-`map.ts` 导入一个其实定义在 `hex.ts` 的函数，一路跑到浏览器才白屏。**改完必须
-`npm run typecheck`**，集成到别的项目时这一步也要带过去。
+**`ring()` depends on `DIRECTIONS` being counter-clockwise.** The ring algorithm
+requires that walking `n` steps along direction `i` traverses exactly edge `i`;
+flip the array to clockwise and it must be iterated in reverse. Read the test
+before touching that array. The symptom is only "the range outline looks a bit
+odd" — nothing throws.
 
-**Vite 的模块转换缓存会卡在中间状态。** 对同一个文件连续两次写入时，watcher 可能
-只认到第一次 —— 源码是新的，dev server 发出去的转换结果是旧的。**改完看不到效果
-先确认浏览器拿到的是不是新代码**（`fetch('/src/…/x.jsx')` 看转换结果），硬刷新
-不一定够，缓存在服务端，重启 dev server 才清得掉。
+**TypeScript in Vite is decorative by default.** Vite strips types without
+checking them. `draw.ts` once imported a function from `map.ts` that actually
+lives in `hex.ts`, and it reached the browser as a white screen. **Always run
+`npm run typecheck`**, and carry that step along when integrating elsewhere.
 
-**`setPointerCapture` 会抛 `NotFoundError`。** 指针在处理器跑到之前就被释放时会抛，
-不接住的话整个 `pointerdown` 就废了，表现为"偶尔一次点击完全没反应"。已用
-try/catch 包住。
+**Vite's module transform cache can stick on an intermediate state.** After two
+writes to the same file in quick succession the watcher may only register the
+first — source is new, the transform the dev server hands out is old. **When a
+change does not show up, first confirm the browser actually got the new code**
+(`fetch('/src/…/x.jsx')` and read the transform). A hard reload is not always
+enough; the cache is server-side, so restart the dev server.
 
-**文件选择框每次都要清空 `value`。** 不清的话选同一个文件第二次不会触发 `change`，
-表现为"读档只能用一次"，而且完全不报错。
+**`setPointerCapture` can throw `NotFoundError`.** It throws when the pointer is
+released before the handler runs, and an uncaught throw kills the whole
+`pointerdown` — the symptom is "occasionally a click does nothing at all".
+Wrapped in try/catch.
 
-**CSS 优先级：`.hexgame .hg-actions button` 压过 `.hexgame .hg-actions__camp`。**
-后者只有两个类，前者两类加一个元素选择器。给单个按钮加特例时记得算一下，否则
-会留下一条**看着生效实际没生效**的规则和一句和现实相反的注释。
+**A file input must have its `value` cleared every time.** Otherwise picking the
+same file twice fires no `change` event — "load only works once", with no error.
 
-**布局判断不能用一个会被布局改变的宽度。** 早先窄宽是拿地图区（`.hg-stage`）
-的宽度判的，而营地面板在宽布局下占一栏、在窄布局下绝对定位不占流 —— 于是
-挤窄 → 判成窄屏 → 面板不占流 → 又变宽 → 判成宽屏，**每一帧都在翻**，屏幕
-疯狂闪烁。现在窄宽只看最外层 `.hexgame` 的宽度，那个宽度不受面板影响。
+**CSS specificity: `.hexgame .hg-actions button` beats
+`.hexgame .hg-actions__camp`.** Two classes plus an element selector beats two
+classes. Do the arithmetic before adding a per-button exception, or you leave
+behind a rule that **looks applied but is not**, plus a comment stating the
+opposite of reality.
 
-这个 bug 只在 **720–988px** 这个带里出现（挤完低于阈值、但容器本身高于阈值），
-手机横屏正好落在里面；我在 1000px 上测过面板，挤完剩 732 刚好没越界，就躲过去了。
-**改布局相关的东西之后，要在阈值上下各测一档，不能只测一个宽度。**
+**Layout decisions must not read a width that the layout itself changes.**
+Narrow/wide used to be decided from the map area (`.hg-stage`), while the camp
+panel takes a flex column in the wide layout and goes absolutely positioned in
+the narrow one — so: squeezed → judged narrow → panel leaves the flow → wide
+again → judged wide, **flipping every single frame**, with the screen strobing.
+Narrow/wide now reads only the outer `.hexgame`, whose width the panel cannot
+affect.
 
-**共用的 `--panel` 是半透明的。** 那是给浮在地图角上的小面板用的；盖满整屏的
-面板（窄屏的营地面板）必须用不透明实色，否则底下的地图和状态条整个透出来，
-字叠在字上没法读。
+This one only appears in the **720–988px** band (squeezed width below the
+threshold while the container itself is above it), which is exactly where a phone
+in landscape lands. It was missed because the panel had been tested at 1000px,
+where squeezing leaves 732 — twelve pixels clear. **After changing anything
+layout-related, test one width on each side of the threshold, not just one.**
 
-## 本机环境
+**The shared `--panel` colour is translucent.** That is for small panels floating
+over a map corner. A panel that covers the whole area (the camp panel in the
+narrow layout, or in overlay mode) must be opaque, or the map and status strip
+show straight through and text lands on text.
 
-- Node 22.17，`node:test` 跑 `.ts` 需要 `--experimental-strip-types`（已写进 npm scripts）
-- **没有装 `gh` CLI**，创建 GitHub 仓库要手动去网页上建
-- **git push 必须指定 Windows 的 ssh**，Git Bash 自带的 ssh 看不见 Windows
-  ssh-agent 里的密钥：
+## This machine
+
+- Node 22.17; `node:test` needs `--experimental-strip-types` for `.ts`
+  (already in the npm scripts)
+- **No `gh` CLI installed** — GitHub repos have to be created through the web UI
+- **`git push` must use the Windows ssh**; the one bundled with Git Bash cannot
+  see the keys in the Windows ssh-agent:
   `GIT_SSH_COMMAND="/c/Windows/System32/OpenSSH/ssh.exe" git push`
-  （或者一次性 `git config --global core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"`）
-- Vite 默认不读 `PORT` 环境变量，已在 `vite.config.js` 里接过来 —— 不接的话它会
-  自顾自往后找空端口，外部工具就连不上了
+  (or once: `git config --global core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"`)
+- Vite does not read the `PORT` environment variable by default; `vite.config.js`
+  wires it up. Without that it silently walks to the next free port and external
+  tooling cannot reach it.
 
-## 以后接进 dope-website 时
+## When integrating into dope-website
 
-游戏进 `frontend/src/game/`，路由加在 `App.jsx` 的 `*` catch-all **之前**。
-把 `src/App.jsx` 这个开发外壳丢掉，站点那边只需要挂 `<Game />` 和 `<SaveControls />`。
+The game goes in `frontend/src/game/`, with its route added **before** the `*`
+catch-all in `App.jsx`. Drop the `src/App.jsx` dev shell — the site only needs to
+mount `<Game />` and `<SaveControls />`, and to pass its own `lang` down.
 
-那个仓库自己的 `CLAUDE.md` 里有几条会直接撞上：
+Several notes from that repo's own `CLAUDE.md` apply directly:
 
-- **字体子集是构建时扫 `content/` 和 `src/` 生成的。** 游戏里写死在源码里的中文
-  没问题，但**运行时拼接或程序生成的文字**（随机地名、数字加单位）扫不到，
-  线上会缺字，本地装了完整字体根本发现不了。现在所有游戏文案都是字面量，
-  加随机文本时要留神。
-- z-index：站点底栏 1000、tooltip 1200，游戏的浮层要在这套体系里排
-- 别用 `100vw`（含滚动条宽度），canvas 尺寸用 `clientWidth` 量
-- 站点是纯 JS + oxlint，所以**核心逻辑用 `.ts`、React 组件用 `.jsx`** ——
-  它的 lint 只看得到 `.jsx`，不需要引 typescript-eslint
-- 预览环境不合成画面，带时间的动画验不了，只能验最终状态
+- **The font subset is generated at build time by scanning `content/` and
+  `src/`.** Chinese written literally in the source is fine, but **text assembled
+  or generated at runtime** (random place names, numbers glued to units) is not
+  scanned, so it renders with missing glyphs in production — and never locally,
+  where the full font is installed. All game copy is literal today; watch this
+  when adding generated text.
+- z-index: the site's bottom bar is 1000 and tooltips are 1200; game overlays
+  have to fit that scheme
+- Do not use `100vw` (it includes the scrollbar); measure canvas size with
+  `clientWidth`
+- The site is plain JS with oxlint, which is why **core logic is `.ts` and React
+  components are `.jsx`** — its lint only ever sees `.jsx` and needs no
+  typescript-eslint
+- The preview environment does not composite frames, so time-based animation
+  cannot be verified there; only end states can

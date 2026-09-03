@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SAVE_VERSION, parseSave, saveFilename, serialize } from './save.ts';
+import { SAVE_VERSION, SaveError, parseSave, saveFilename, serialize } from './save.ts';
 import {
   assign,
   buildFacility,
@@ -99,16 +99,32 @@ test('存档比整份 stringify 小一个量级', () => {
   assert.ok(compact * 5 < naive, `压缩没生效：${compact} vs ${naive}`);
 });
 
-test('坏文件抛的是人话，不是崩溃', () => {
-  assert.throws(() => parseSave('这不是 json'), /有效的 JSON/);
-  assert.throws(() => parseSave('123'), /不是一个对象/);
-  assert.throws(() => parseSave(JSON.stringify({ v: 999 })), /版本/);
-  assert.throws(() => parseSave(JSON.stringify({ v: SAVE_VERSION })), /地图尺寸/);
+test('坏文件抛的是人话，不是崩溃，而且中英文都有', () => {
+  const cases: [string, RegExp][] = [
+    ['这不是 json', /valid JSON/],
+    ['123', /not an object/],
+    [JSON.stringify({ v: 999 }), /version mismatch/],
+    [JSON.stringify({ v: SAVE_VERSION }), /no map size/],
+  ];
+
+  for (const [input, pattern] of cases) {
+    assert.throws(
+      () => parseSave(input),
+      (err: unknown) => {
+        assert.ok(err instanceof SaveError, '应该抛 SaveError');
+        assert.match(err.msg.en, pattern);
+        // 两种语言都得有，缺一种就等于线上某个语言看到 undefined
+        assert.ok(err.msg.zh.length > 0, '缺中文');
+        assert.notEqual(err.msg.zh, err.msg.en, '中文没写，照抄了英文');
+        return true;
+      },
+    );
+  }
 
   const g = played();
   const broken = JSON.parse(serialize(g));
   broken.map.terrain = broken.map.terrain.slice(0, 10);
-  assert.throws(() => parseSave(JSON.stringify(broken)), /地形数据长度/);
+  assert.throws(() => parseSave(JSON.stringify(broken)), /terrain data length/);
 });
 
 test('文件名带回合数，且只含文件系统安全的字符', () => {

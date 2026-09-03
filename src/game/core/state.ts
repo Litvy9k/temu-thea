@@ -175,7 +175,7 @@ function findStart(map: GameMap): Axial {
     }
     if (fallback && r > 12) return fallback;
   }
-  throw new Error('这张图上找不到能落脚的地方');
+  throw new Error('no landable start tile on this map');
 }
 
 // ---------------------------------------------------------------- 视野

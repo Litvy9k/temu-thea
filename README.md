@@ -1,106 +1,133 @@
 # temu-thea
 
-六边形网格的大地图生存游戏。在程序生成的地图上游荡、扎营、派人采集、
-攒资源建设施造工具。纯前端，无后端、无网络请求。
+A hex-grid survival game on a big procedural map. Roam, make camp, assign
+people to gather from the surrounding tiles, then spend what you gather on
+facilities and tools. Pure front end — no backend, no network requests.
 
-React 19 + Vite。核心逻辑 TypeScript，React 组件 JSX。
+React 19 + Vite. Core logic in TypeScript, React components in JSX.
 
-## 跑起来
+Bilingual (English / 中文). The game takes a `lang` prop; the host decides
+its value — there is no language switch inside the game itself.
+
+## Running it
 
 ```
 npm install
-npm run dev        # 开发服务器
-npm run build      # 产出 dist/，三个静态文件
-npm test           # 34 条测试，不依赖任何测试框架（node:test）
+npm run dev        # dev server
+npm run build      # emits dist/ — three static files
+npm test           # 34 tests, no test framework (node:test)
 npm run typecheck  # tsc --noEmit
 ```
 
-两个调数值用的小工具：
+Two terminal tools for tuning numbers:
 
 ```
-npm run map -- 温泉关     # 终端里 ASCII 打印一张地图，调地形阈值用
-npm run sim -- thea 30    # 让贪心 AI 跑 30 回合，打印逐回合的资源账本
+npm run map -- thermopylae   # print a map as ASCII, for tuning terrain thresholds
+npm run sim -- thea 30    # run a greedy AI for 30 turns, print the resource ledger
 ```
 
-## 玩法
+## How it plays
 
-**游荡** 和 **扎营** 是两种互斥状态。游荡时能在地图上走但没人干活，队伍纯消耗；
-扎营时不能走，但能把人派到营地周围一圈的地格上采集。扎营和拔营各消耗当回合
-剩余行动力，所以搬家至少要一整个回合。
+**Roaming** and **camped** are mutually exclusive. While roaming you can move
+but nobody works, so the party is pure upkeep. While camped you cannot move,
+but you can send people to the six tiles around the camp. Making and breaking
+camp each consume the rest of the turn's movement, so relocating costs at
+least one full turn.
 
-每个地格有一条 0/40 的采集进度条，每派一个人每回合推进 20 点，一格最多 5 人，
-进度可以溢出（3 个人推 60 = 结算一次 + 条上留 20）。
+Every tile has a 0/40 gathering bar. Each assigned person advances it 20 per
+turn, up to 5 people per tile, and progress overflows — three people push 60,
+which is one harvest plus 20 left on the bar.
 
-食物按人头消耗，木材按营火固定每回合 1。任何一样见底就每回合减员一人。
-没有一种地形同时富含食物和木材，所以选址必须两样都要 —— 这是"在哪扎营"
-这个决定的全部分量。
+Food is consumed per person; wood is a flat 1 per turn (the campfire burns the
+same whether three people sit around it or ten). Running out of either costs
+one person per turn. No terrain is rich in both food and wood, so a camp site
+has to have both nearby — that is the whole weight of the "where to camp"
+decision.
 
-工具按数量计，一把装备一个人，**按部署顺序发放**：有 3 把斧头就是最先派到
-林子里的 3 个人吃到加成，地图上他们的人力点是绿色的。
+Tools are counted, one per person, and **handed out in deployment order**:
+with three axes, the first three people sent into the woods get the bonus, and
+their crew dots on the map are green.
 
-## 目录
+## Layout
 
 ```
-src/game/            可移植边界。整个目录能直接搬进别的 React 项目
-  core/              纯逻辑，不碰 DOM
-    hex.ts           六边形数学：轴向坐标、像素互转、范围、带地形代价的可达
-    map.ts           地图存储与噪声生成
-    terrain.ts       地形表 —— 玩法差异几乎全部由这张表定义
-    works.ts         设施与工具表
-    state.ts         状态与规则（移动 / 扎营 / 派工 / 结算）
-    save.ts          存档的序列化与读取
-    rng.ts           可复现的种子随机
-  render/            Canvas 绘制与相机
-  ui/                React 组件
-    useHexGame.js    交互逻辑，两套布局共用这一个"大脑"
-    DesktopLayout    浮动面板
-    MobileLayout     上下通栏 + 拇指区
-src/App.jsx          开发外壳，集成时丢掉
-scripts/             上面那两个终端工具
+src/game/            portable boundary — this directory drops into any React project
+  core/              pure logic, no DOM, runs directly under node
+    hex.ts           hex math: axial coords, pixel conversion, ranges, cost-aware reach
+    map.ts           map storage and noise generation
+    terrain.ts       terrain table — nearly all gameplay difference lives here
+    works.ts         facility and tool tables
+    state.ts         state and rules (move / camp / assign / turn resolution)
+    save.ts          save serialisation
+    rng.ts           reproducible seeded random
+  render/            canvas drawing and camera
+  ui/                React components
+    useHexGame.js    interaction logic — one "brain" shared by both layouts
+    DesktopLayout    floating panels
+    MobileLayout     top strip + thumb dock
+src/App.jsx          dev shell, thrown away on integration
+scripts/             the two terminal tools above
 ```
 
-## 几条定下的规则
+## Rules that are settled
 
-**布局按容器宽度切，点击区大小按 `pointer: coarse` 切。** 这是两件事：游戏要
-嵌进个人站的某个容器，落在窄栏里时即使桌面浏览器也该用窄布局，所以量的是
-容器不是视口；而 iPad 横屏够宽该用宽布局，但手指还是手指，按钮仍要 44px。
+**Layout switches on container width; tap-target size switches on
+`pointer: coarse`.** Two different things. The game is meant to be embedded in
+a column on a personal site, so a narrow column deserves the narrow layout even
+in a desktop browser — hence container width, not viewport. Meanwhile an iPad
+in landscape is wide enough for the wide layout, but fingers are still fingers,
+so buttons stay 44px.
 
-**交互逻辑只有一套。** 桌面和手机的信息结构不同，但"点一下算移动还是派人"
-"拖多远才算拖拽""双指怎么缩放"是同一套规则，全在 `useHexGame.js` 里。
-复制一份到两个布局里，迟早会改了一边忘另一边。
+**There is one set of interaction logic.** Desktop and mobile present
+information differently, but drag thresholds, pinch zoom and click semantics
+are the same rules, all in `useHexGame.js`. Copy them into two layouts and one
+of them eventually falls behind.
 
-**采集速度只有一个口径。** `workRateAt()` 是唯一来源，地格面板、进度条、
-结算全读它。两处各算各的在画面上看不出来，只会表现为"显示 60 但进度只走了 40"。
+**Gathering speed has a single source of truth.** `workRateAt()` — the tile
+panel, the progress bar and turn resolution all read it. Two implementations
+would be invisible on screen and show up only as "the panel says 60 but the bar
+moved 40".
 
-**设施和工具挂在队伍上，不挂在营地上。** 所以"拔营再扎营后保留"是数据模型的
-自然结果，不需要任何搬运逻辑 —— 那种地方正是以后会漏掉某个字段的位置。
-叙事上理解成随队工事和行装：拆了棚子把木料和工具装上车带走。
+**Facilities and tools belong to the party, not to the camp.** So "they survive
+breaking camp" falls out of the data model instead of needing carry-over
+logic — that kind of logic is exactly where a field gets forgotten later. Read
+them as gear the expedition packs up and takes along.
 
-**存档不靠种子重建地形。** 地形照原样存下来（压缩后约 6KB），和生成器版本
-解耦。靠种子重建能压到几百字节，但以后一动地形表或噪声参数，所有老存档的
-地图都会悄悄变样 —— 不报错，就是不一样了。
+**Saves do not rebuild terrain from the seed.** Terrain is stored as-is
+(about 6KB compressed), decoupled from the generator. Rebuilding from a seed
+would fit in a few hundred bytes, but then every tweak to the terrain table or
+noise parameters would silently change the map in every old save — no error,
+just a different world.
 
-**地图配比是设计值不是涌现值。** 地形阈值按分位数切，所以每张图的陆地占比、
-山地占比都是稳定的，不会抽到一张 90% 是海的废图。
+**Map composition is designed, not emergent.** Terrain thresholds are cut by
+quantile, so land fraction and mountain fraction are stable across seeds. You
+never roll a map that is 90% ocean.
 
-## 踩过的坑
+## Things that bit us
 
-**canvas 必须写 `touch-action: none`。** 不写的话手指在地图上一划就被浏览器
-拿去滚页面，`pointermove` 不会连续送到，平移和双指缩放全部失效 —— 而桌面上
-用鼠标测完全正常，只测桌面发现不了。
+**Canvas needs `touch-action: none`.** Without it a finger drag is taken by the
+browser to scroll the page, `pointermove` never arrives continuously, and both
+panning and pinch zoom silently stop working — while a mouse on desktop behaves
+perfectly, so desktop-only testing never catches it.
 
-**`Math.round(-0.4)` 返回 `-0`。** 坐标里混进 `-0` 后 `deepStrictEqual` 和
-`Object.is` 判不等，但 `===` 说相等。已在 `hex.ts` 的 `round()` 里归一化。
+**`Math.round(-0.4)` returns `-0`.** Once `-0` is in a coordinate,
+`deepStrictEqual` and `Object.is` report inequality while `===` reports
+equality. Normalised inside `round()` in `hex.ts`.
 
-**文件选择框每次都要清空 `value`。** 不清的话选同一个文件第二次不会触发
-`change`，表现为"读档只能用一次"，而且完全不报错。
+**A file input must have its `value` cleared every time.** Otherwise picking
+the same file twice fires no `change` event — "load only works once", with no
+error at all.
 
-**Vite 的模块转换缓存会卡在中间状态。** 对同一个文件连续两次写入时，改完看不到
-效果先确认浏览器拿到的是不是新代码（fetch 那个模块路径看转换结果），硬刷新
-不一定够 —— 缓存在服务端，重启 dev server 才清得掉。
+**Vite's module transform cache can stick on a stale version.** After two
+writes to one file in quick succession, the source can be new while the dev
+server still serves the old transform. When a change does not show up, first
+check what the browser actually received (fetch the module path and read the
+transform); a hard reload is not always enough, because the cache lives on the
+server — restarting the dev server is.
 
-## 还没做
+## Not done yet
 
-- 更多资源种类（目标是让一处采不全，迫使搬家）
-- 随机事件
-- 战斗（暂时没有，也不一定要有）
+- More resource types (the goal is that no single site yields everything,
+  which forces you to move)
+- Random events
+- Combat (none today, and not necessarily ever)

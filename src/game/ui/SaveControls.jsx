@@ -45,7 +45,9 @@ export default function SaveControls({ getState, onNew, onLoad, lang = 'zh' }) {
       onLoad(parseSave(await file.text()));
       setError(null);
     } catch (err) {
-      setError(`${t(lang, 'loadFailed')}：${err.message}`);
+      // SaveError 自带双语；其它异常（理论上不该有）退回英文的 message
+      const why = err.msg?.[lang] ?? err.message;
+      setError([t(lang, 'loadFailed'), why, err.detail].filter(Boolean).join(' · '));
     }
   };
 
