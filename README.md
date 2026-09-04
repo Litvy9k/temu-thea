@@ -144,9 +144,40 @@ check what the browser actually received (fetch the module path and read the
 transform); a hard reload is not always enough, because the cache lives on the
 server — restarting the dev server is.
 
+## Events
+
+`src/game/core/events.ts` is a plain table. Each event has trigger rules, a
+line of text, and one or more choices with effects:
+
+```ts
+{
+  id: 'hardWinter',
+  text: { en: '…', zh: '…' },
+  trigger: [                                   // OR between entries
+    { when: [{ metric: 'turn', op: '>=', value: 12 }], chance: 0.08 },
+    { when: [{ metric: 'wood', op: '<',  value: 6  }], chance: 0.25 },
+  ],
+  choices: [
+    { label: {…}, require: [{ metric: 'wood', op: '>=', value: 8 }],
+      effect: { stock: { wood: -8 } } },
+    { label: {…}, effect: { people: -1 } },    // no require: always available
+  ],
+}
+```
+
+Metrics are `turn`, `people`, `idle`, `food`, `wood`, `stone`; operators are
+`>`, `>=`, `<`, `<=`, `==`. Conditions inside one rule are AND-ed, rules are
+OR-ed, and the highest matching chance is used. At most one event fires per
+turn, tried in table order, and a pending event blocks the turn until the player
+chooses. Add `once: true` for one-shot events.
+
+Effects are pure data (`stock`, `people`, `tools`), so the dialog renders
+"−6✦ +3 people" straight from the numbers instead of a hand-written line that
+can drift out of sync.
+
 ## Not done yet
 
 - More resource types (the goal is that no single site yields everything,
   which forces you to move)
-- Random events
+- More events, and effects beyond resources and headcount
 - Combat (none today, and not necessarily ever)

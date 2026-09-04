@@ -194,6 +194,11 @@
   color: var(--warn);
 }
 
+/* 「−6✦ +3 人」几项之间要留空，否则连成一串读不出断在哪 */
+.hexgame .hg-delta + .hg-delta {
+  margin-left: 8px;
+}
+
 .hexgame .hg-yield + .hg-yield {
   margin-left: calc(6 * var(--u));
 }

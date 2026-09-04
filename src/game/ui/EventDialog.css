@@ -1,0 +1,63 @@
+/*
+ * 事件弹窗盖在整块游戏区上，包括营地面板 —— 选完之前别的操作都不该继续。
+ * 背板不透明的那一层在 __box 上：背景压暗但仍看得见地图，正文区必须实色，
+ * 否则地图的六边形纹理会从字底下透出来。
+ */
+.hg-event {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(3, 6, 8, 0.72);
+}
+
+.hg-event__box {
+  width: min(100%, 420px);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+  background: #05090b;
+  border: var(--line-w, 1px) solid var(--line);
+}
+
+.hg-event__text {
+  margin: 0 0 14px;
+  line-height: 1.7;
+}
+
+.hg-event__choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/*
+ * 一个选项是一整块可点区域，不是一行文字加一个按钮 ——
+ * 触屏上目标越大越好，而这里本来就是全屏独占的一步。
+ */
+.hg-event__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  min-height: var(--tap);
+  text-align: left;
+}
+
+.hg-event__label {
+  font-weight: 600;
+}
+
+.hg-event__effect {
+  color: var(--ink-dim);
+}
+
+/* 按钮整体 hover 会反色，里面的次要文字得跟着走，否则看不见 */
+.hg-event__choice:hover:not(:disabled) .hg-event__effect,
+.hg-event__choice:hover:not(:disabled) .hg-warn {
+  color: inherit;
+}

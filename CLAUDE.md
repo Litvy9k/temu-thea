@@ -107,6 +107,29 @@ change the map** in every old save — no error, just a different world. Saves
 carry a `v` field; a mismatch is rejected outright rather than force-parsed.
 `TERRAIN_CODES` in `save.ts` is **append-only: never reorder, never delete**.
 
+**Events: one per turn, table order is priority, OR-ed rules take the highest
+chance.** `events.ts` holds the table; `state.ts` rolls at the end of `endTurn`.
+Within a rule the conditions are AND-ed; between rules they are OR-ed, and when
+several rules hold the **highest** chance wins rather than the sum — summing
+would mean "the more conditions you write, the more often it fires", which the
+person writing the table cannot predict.
+
+**Every event needs at least one choice with no `require`.** A pending event
+blocks `endTurn`, so an event whose choices are all unaffordable would freeze the
+run. A test enforces it, along with "every event in the table can actually fire"
+— a self-contradictory condition is invisible in code and only shows up as an
+event that never appears.
+
+**The event RNG lives in `state.rngState`, not `Math.random()`.** Events have to
+be reproducible from a seed, testable, and consistent across a save/load — a
+global RNG loses all three. `rng.ts` exposes `step()` as a pure function for
+exactly this; `mulberry32()` is built on it so there is only one generator.
+
+**The `idle` metric is 0 while roaming.** `idleCount()` is "people minus
+assigned", and with no camp nothing is assigned — read literally, everyone is
+idle forever and "the idle ones talk about leaving" fires on turn 2, before the
+player has even camped. Roaming is not idling.
+
 **Both languages are hardcoded at the point of use; the game never owns the
 switch.** `i18n.js`, `terrain.ts`, `works.ts` and the `SaveError` throws all
 carry `{ en, zh }` pairs inline — no translation files, no i18n library, no

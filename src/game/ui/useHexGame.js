@@ -14,6 +14,9 @@ import {
   assign,
   assignBlocker,
   breakCamp,
+  chooseEvent,
+  choiceAllowed,
+  currentEvent,
   buildFacility,
   craftTool,
   campBlocker,
@@ -260,6 +263,13 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
     }
   }, [game]);
 
+  const choose = useCallback(
+    (index) => {
+      if (chooseEvent(game, index)) bump();
+    },
+    [game],
+  );
+
   const build = useCallback(
     (id) => {
       if (buildFacility(game, id)) bump();
@@ -341,6 +351,11 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
     campOpen,
     openCamp: () => setCampOpen(true),
     closeCamp: () => setCampOpen(false),
+
+    /** 正等玩家做选择的事件，没有就是 null */
+    event: currentEvent(game),
+    choiceAllowed: (choice) => choiceAllowed(game, choice),
+    choose,
 
     canvasProps: {
       className: dragging ? 'dragging' : undefined,

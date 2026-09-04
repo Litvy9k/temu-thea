@@ -3,15 +3,27 @@
  * 否则玩家报"这张图有问题"时你复现不出来，存档也存不住地形。
  */
 
-/** mulberry32：32 位状态，质量够做地形，代码短到可以放心内联 */
+/**
+ * mulberry32 的一步，写成纯函数：拿一个状态，给出 0..1 的值和下一个状态。
+ *
+ * 事件判定需要把随机数状态**存进 GameState** —— 用 Math.random() 的话事件
+ * 没法复现也没法测，而存档读回来之后接下来抽到什么也会和存档前不一致。
+ */
+export function step(seed: number): { value: number; next: number } {
+  const a = (seed + 0x6d2b79f5) >>> 0;
+  let t = a;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return { value: ((t ^ (t >>> 14)) >>> 0) / 4294967296, next: a };
+}
+
+/** 地图生成用的流式接口。和 step 是同一个发生器，别各写一份 */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    const r = step(a);
+    a = r.next;
+    return r.value;
   };
 }
 

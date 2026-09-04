@@ -6,6 +6,7 @@
  */
 import { RESOURCES } from '../core/terrain.ts';
 import { HARVEST_GOAL } from '../core/state.ts';
+import { TOOLS } from '../core/works.ts';
 import { t } from './../i18n.js';
 
 export const RESOURCE_ORDER = ['food', 'wood', 'stone'];
@@ -22,6 +23,35 @@ export function Resource({ id, stock, income, short, lang }) {
       <span className={`hg-res__income ${trend}`}>{income > 0 ? `+${income}` : income}</span>
     </span>
   );
+}
+
+/**
+ * 把一个事件效果渲染成 "+3人 −6✦"。
+ *
+ * 从数据算出来而不是让事件表手写一份说明 —— 手写的那份迟早和数值对不上，
+ * 而这种对不上没人会发现：文案说 −6，实际扣 8，玩家只当自己记错了。
+ */
+export function EffectDeltas({ effect, lang }) {
+  const bits = [];
+
+  for (const id of RESOURCE_ORDER) {
+    const n = effect.stock?.[id];
+    if (n) bits.push({ key: id, n, unit: RESOURCES[id].glyph });
+  }
+  if (effect.people) bits.push({ key: 'people', n: effect.people, unit: t(lang, 'personUnit') });
+  for (const [id, n] of Object.entries(effect.tools ?? {})) {
+    if (n) bits.push({ key: id, n, unit: TOOLS[id].label[lang] });
+  }
+
+  if (!bits.length) return <span>{t(lang, 'noEffect')}</span>;
+
+  return bits.map((b) => (
+    <span key={b.key} className="hg-delta">
+      {b.n > 0 ? '+' : '−'}
+      {Math.abs(b.n)}
+      {b.unit}
+    </span>
+  ));
 }
 
 /** 「4✦ 2❙」这样的一串产出 */

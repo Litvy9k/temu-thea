@@ -17,6 +17,7 @@ import { useHexGame, CAMP_PANEL_WIDTH } from './useHexGame.js';
 import DesktopLayout from './DesktopLayout.jsx';
 import MobileLayout from './MobileLayout.jsx';
 import CampPanel from './CampPanel.jsx';
+import EventDialog from './EventDialog.jsx';
 import './Game.css';
 
 export default function Game({ lang = 'zh', seed, initialState = null, stateRef = null }) {
@@ -46,6 +47,16 @@ export default function Game({ lang = 'zh', seed, initialState = null, stateRef 
       </div>
 
       {g.campOpen && <CampPanel {...g} />}
+
+      {/* 挂在 hg-stage 外面：事件挂着时营地面板也不该还能点 */}
+      {g.event && (
+        <EventDialog
+          event={g.event}
+          lang={lang}
+          allowed={g.choiceAllowed}
+          onChoose={g.choose}
+        />
+      )}
     </div>
   );
 }

@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test src/game/core/hex.test.ts src/game/core/works.test.ts src/game/core/save.test.ts src/game/render/camera.test.ts",
+    "test": "node --experimental-strip-types --test src/game/core/hex.test.ts src/game/core/works.test.ts src/game/core/save.test.ts src/game/core/events.test.ts src/game/render/camera.test.ts",
     "map": "node --experimental-strip-types scripts/dump-map.ts",
     "typecheck": "tsc --noEmit",
     "sim": "node --experimental-strip-types scripts/sim.ts"

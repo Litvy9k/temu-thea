@@ -15,7 +15,16 @@
  */
 import { type Axial, distance, equals, key, parseKey, range, reachable, ring } from './hex.ts';
 import { type GameMap, generateMap, hexOfIndex, tileAt } from './map.ts';
-import { seedFrom } from './rng.ts';
+import { seedFrom, step } from './rng.ts';
+import {
+  EVENTS,
+  type Choice,
+  type GameEvent,
+  type Snapshot,
+  chanceOf,
+  findEvent,
+  meetsAll,
+} from './events.ts';
 import { type ResourceId, TERRAIN, isPassable, isWorkable, primaryYields } from './terrain.ts';
 import {
   FACILITIES,
@@ -102,6 +111,20 @@ export interface GameState {
   hardship: number;
   /** 人死光了 */
   over: boolean;
+
+  /**
+   * 正等玩家做选择的事件 id。非 null 时回合推不动 —— 先选，再继续。
+   * 存 id 不存对象：事件表是代码，存档里只该留一个引用。
+   */
+  pendingEvent: string | null;
+  /** 已经触发过的 once 事件 */
+  seenEvents: string[];
+  /**
+   * 事件判定用的随机数状态。**存进 state 而不是用 Math.random()** ——
+   * 否则事件既不可复现也没法测，存档读回来之后接下来抽到什么也会变。
+   */
+  rngState: number;
+
   version: number;
 }
 
@@ -137,6 +160,10 @@ export function createGame(opts: NewGameOptions = {}): GameState {
     lastShortage: { food: 0, wood: 0 },
     hardship: 0,
     over: false,
+    pendingEvent: null,
+    seenEvents: [],
+    // 和地图种子错开，免得同一个种子下地形和事件的随机序列相关
+    rngState: (seed ^ 0x2545f491) >>> 0,
     version: 0,
   };
 
@@ -498,6 +525,9 @@ export function craftTool(state: GameState, id: ToolId): boolean {
 
 export function endTurn(state: GameState): void {
   if (state.over) return;
+  // 有事件等着做选择就推不动回合。UI 那边按钮也会置灰，这里是兜底 ——
+  // 键盘快捷键和以后的自动化都会绕过按钮
+  if (state.pendingEvent) return;
 
   const income: Stock = { ...NO_STOCK };
 
@@ -557,7 +587,103 @@ export function endTurn(state: GameState): void {
   state.lastIncome = income;
   state.party.moves = PARTY_MOVES;
   state.turn += 1;
+
+  // 放在 turn += 1 之后：条件里写的 turn 指的是即将开始的那一回合
+  rollEvent(state);
+
   state.version += 1;
+}
+
+// ---------------------------------------------------------------- 事件
+
+/** 事件判定要看的那几个数。加新 metric 要同时改这里和 events.ts 的类型 */
+export function metrics(state: GameState): Snapshot {
+  return {
+    turn: state.turn,
+    people: state.party.people,
+    /*
+     * 游荡时算 0，不算"全员闲置"。idleCount 是"人数 − 已派工"，而游荡时
+     * 没有营地、派工恒为 0 —— 直接用它的话所有人永远算闲着，"闲人要走"
+     * 这类事件从第 2 回合就开始触发。游荡不是闲着，是在赶路。
+     */
+    idle: state.camp ? idleCount(state) : 0,
+    food: state.stock.food,
+    wood: state.stock.wood,
+    stone: state.stock.stone,
+  };
+}
+
+/**
+ * 抽这一回合的事件。**一回合最多一个** —— 连弹几个框没法看。
+ *
+ * 按事件表的顺序逐个判定，先命中的先触发，所以表的顺序就是优先级。
+ * 每个够格的事件各消耗一次随机数，彼此独立。
+ */
+function rollEvent(state: GameState): void {
+  if (state.over) return;
+
+  const snap = metrics(state);
+  for (const ev of EVENTS) {
+    if (ev.once && state.seenEvents.includes(ev.id)) continue;
+
+    const chance = chanceOf(snap, ev.trigger);
+    if (chance <= 0) continue;
+
+    const roll = step(state.rngState);
+    state.rngState = roll.next;
+
+    if (roll.value < chance) {
+      state.pendingEvent = ev.id;
+      if (ev.once) state.seenEvents.push(ev.id);
+      return;
+    }
+  }
+}
+
+/** 当前挂着的事件对象。存档里存的是 id，这里还原 */
+export function currentEvent(state: GameState): GameEvent | null {
+  return state.pendingEvent ? (findEvent(state.pendingEvent) ?? null) : null;
+}
+
+/** 这个选择现在能不能选。不能选的在界面上置灰，不是藏起来 —— 玩家要看得见代价 */
+export function choiceAllowed(state: GameState, choice: Choice): boolean {
+  return meetsAll(metrics(state), choice.require);
+}
+
+/** 做出选择：结算效果、关掉事件。返回是否真的选上了 */
+export function chooseEvent(state: GameState, index: number): boolean {
+  const ev = currentEvent(state);
+  if (!ev) return false;
+
+  const choice = ev.choices[index];
+  if (!choice || !choiceAllowed(state, choice)) return false;
+
+  applyEffect(state, choice.effect);
+  state.pendingEvent = null;
+  state.version += 1;
+  return true;
+}
+
+/**
+ * 结算一个效果。资源和人数都夹在 0 以上 —— 事件表里写 -10 食物时，
+ * 作者想的是"扣掉十份粮"，不是"允许欠债"。
+ */
+function applyEffect(state: GameState, effect: Choice['effect']): void {
+  for (const [res, n] of Object.entries(effect.stock ?? {})) {
+    state.stock[res as ResourceId] = Math.max(0, state.stock[res as ResourceId] + n);
+  }
+
+  for (const [id, n] of Object.entries(effect.tools ?? {})) {
+    const key = id as keyof GameState['works']['tools'];
+    state.works.tools[key] = Math.max(0, state.works.tools[key] + n);
+  }
+
+  if (effect.people) {
+    state.party.people = Math.max(0, state.party.people + effect.people);
+    // 人少了派工可能超编，和饿死减员走同一条收尾
+    trimCrew(state);
+    if (state.party.people <= 0) state.over = true;
+  }
 }
 
 /** 存档 / 撤销用。状态是纯数据，深拷贝就够 */
