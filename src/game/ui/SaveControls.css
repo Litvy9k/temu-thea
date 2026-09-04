@@ -1,11 +1,17 @@
 /*
  * 只管排布，不定颜色和边框 —— 这组按钮要放进宿主自己的 chrome 里，
  * 让它跟着周围的样式走，别自带一套跟站点打架。
+ *
+ * 这里的尺寸**不能**用 calc(N * var(--u))。--u 定义在 .hexgame 上，而这一组
+ * 是挂在宿主自己的 chrome 里的、渲染在游戏根节点之外，取不到那个变量 ——
+ * calc 里引用未定义的自定义属性，整条声明在计算值阶段就作废了，
+ * gap 会退回 normal（也就是 0，按钮糊成一条），而且不报任何错。
+ * 尺寸本来也该由宿主定，这里只留一个能单独跑时看得过去的默认值。
  */
 .hg-save {
   display: flex;
   align-items: center;
-  gap: calc(6 * var(--u));
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -15,5 +21,5 @@
 
 .hg-save__error {
   color: #ff8b6b;
-  font-size: calc(12 * var(--u));
+  font-size: 12px;
 }
