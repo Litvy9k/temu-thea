@@ -74,6 +74,10 @@ scripts/             the two terminal tools above
 `src/game/ui/Game.css` puts its palette on `.hexgame` — `--ink`, `--ink-dim`,
 `--line`, `--panel`, `--accent`, `--warn`, `--idle`.
 
+Typeface is the other one: `--game-font`, same arrangement. Size and
+line-height are not exposed — they are tuned for the density of this HUD, and
+a host whose body text scales with the viewport would burst the panels.
+
 Border thickness is the one knob deliberately *not* declared there. It is
 written as `var(--line-w, 1px)` at each of the six places that draw a line, so
 a host can set `--line-w` on any ancestor and every rule follows. Declaring it

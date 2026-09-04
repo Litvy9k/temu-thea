@@ -31,7 +31,17 @@
   overflow: hidden;
   background: #05090b;
   color: var(--ink);
-  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /*
+   * 字号和行高是照这个 HUD 的密度调的，别继承宿主的 —— 站点那边正文字号
+   * 是跟着视口缩放的，继承过来会把面板撑坏。只有字体家族留给宿主换。
+   * 和 --line-w 一样不在这里声明 --game-font，只写兜底：声明了就近的赢，
+   * 宿主在外层设的值反而生效不了。
+   *
+   * 保留 font 简写而不是拆成三条 longhand，是因为简写会顺带把
+   * font-weight / style / variant 复位成 normal，拆开就丢了这层保护，
+   * 宿主那边一个粗体就会漏进来。
+   */
+  font: 13px/1.5 var(--game-font, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   user-select: none;
   -webkit-user-select: none;
   /* 长按不要弹出 iOS 的系统菜单，点击不要闪蓝框 */
