@@ -16,7 +16,7 @@
 import { type Axial, distance, equals, key, parseKey, range, reachable, ring } from './hex.ts';
 import { type GameMap, generateMap, hexOfIndex, tileAt } from './map.ts';
 import { seedFrom } from './rng.ts';
-import { type ResourceId, TERRAIN, isPassable, isWorkable } from './terrain.ts';
+import { type ResourceId, TERRAIN, isPassable, isWorkable, primaryYields } from './terrain.ts';
 import {
   FACILITIES,
   type FacilityId,
@@ -389,8 +389,11 @@ export function toolAllocation(state: GameState): Map<string, { equipped: number
     const tile = tileAt(state.map, parseKey(k));
     if (!tile) continue;
 
-    const yields = TERRAIN[tile.terrain].yields;
-    const id = TOOL_ORDER.find((t) => left[t] > 0 && TOOLS[t].boosts.some((r) => yields[r]));
+    // 只看主产资源：森林产 1 点食物，但它是木头地，骨锄在那儿不该算数
+    const primary = primaryYields(tile.terrain);
+    const id = TOOL_ORDER.find(
+      (t) => left[t] > 0 && TOOLS[t].boosts.some((r) => primary.includes(r)),
+    );
     if (!id) continue;
 
     left[id] -= 1;

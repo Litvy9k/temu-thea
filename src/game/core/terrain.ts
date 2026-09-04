@@ -133,3 +133,26 @@ export function isPassable(id: TerrainId): boolean {
 export function isWorkable(id: TerrainId): boolean {
   return Object.keys(TERRAIN[id].yields).length > 0;
 }
+
+/**
+ * 这一格的**主产**资源：产量最高的那一种，并列则都算。
+ *
+ * 存在的理由是工具的适用范围。森林是 food 1 + wood 5，"产不产食物"这个
+ * 问法下它是产食物的，于是骨锄也能给伐木的人加成 —— 那不合理：工具跟着
+ * 一块地的主业走，不跟着零头走。用主产资源来判定之后：
+ *
+ *   草原 / 浅滩 / 苔原  主产食物 → 骨锄
+ *   森林                主产木材 → 石斧
+ *   沼泽                食物木材并列 → 两者都行
+ *   丘陵 / 山地          主产石料 → 目前没有对应工具
+ *
+ * 顺带一提，这条规则让"再加一种资源"这件事自动成立：新地形的主产是什么，
+ * 哪把工具吃得上就自然定下来了，不用另写一张对照表。
+ */
+export function primaryYields(id: TerrainId): ResourceId[] {
+  const entries = Object.entries(TERRAIN[id].yields) as [ResourceId, number][];
+  if (!entries.length) return [];
+
+  const best = Math.max(...entries.map(([, n]) => n));
+  return entries.filter(([, n]) => n === best).map(([r]) => r);
+}

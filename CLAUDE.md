@@ -77,6 +77,17 @@ is the entire weight of the "where to camp" decision. Keep this rule when adding
 resource types: no single site yielding everything is what gives a reason to
 move.
 
+**A tool only applies to a tile whose *primary* yield it boosts.**
+`primaryYields()` in `terrain.ts` returns the highest-valued resource on a tile
+(ties count as several). Matching on "does this tile produce the resource at all"
+is wrong: forest is `food 1 + wood 5`, so a food tool would attach to loggers.
+A tool follows what a patch of land is *for*, not its leftovers.
+
+This also makes adding resources self-resolving — a new terrain's primary yield
+decides which tools reach it, with no separate lookup table to maintain. The
+current consequence is that hills and mountains (primary stone) have no tool at
+all until a pick exists.
+
 **`yields` is "output per completed bar", not per turn.** Each person advances
 20 per turn against a goal of 40, so over time **one person completes 0.5
 harvests per turn** and single-person output is `yields / 2`. Estimate from the

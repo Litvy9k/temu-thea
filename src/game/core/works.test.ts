@@ -25,7 +25,7 @@ import {
   type GameState,
 } from './state.ts';
 import { key } from './hex.ts';
-import { TERRAIN } from './terrain.ts';
+import { TERRAIN, type ResourceId, type TerrainId, primaryYields } from './terrain.ts';
 import { tileAt } from './map.ts';
 
 /**
@@ -44,10 +44,15 @@ function camped(): GameState {
   return g;
 }
 
-/** 作业圈里第一个产这种资源的地格 */
-function tileYielding(g: GameState, res: 'food' | 'wood' | 'stone') {
-  const h = workableTiles(g).find((x) => TERRAIN[tileAt(g.map, x)!.terrain].yields[res]);
-  if (!h) throw new Error(`种子 thea 的作业圈里没有产${res}的地格`);
+/**
+ * 作业圈里第一个**主产**这种资源的地格。
+ *
+ * 按"产不产"找会找歪：森林也产 1 点食物，拿它当"粮地"来测工具，
+ * 测试自己就先糊了。
+ */
+function tileYielding(g: GameState, res: ResourceId) {
+  const h = workableTiles(g).find((x) => primaryYields(tileAt(g.map, x)!.terrain).includes(res));
+  if (!h) throw new Error(`种子 thea 的作业圈里没有主产${res}的地格`);
   return h;
 }
 
@@ -80,6 +85,49 @@ test('斧头不会发给草原上的人 —— 用不上的地格直接跳过', 
   const forest = tileYielding(g, 'wood');
   assign(g, forest);
   assert.equal(workRateAt(g, forest).equipped, 1);
+});
+
+test('骨锄不给森林加成 —— 森林产 1 点食物，但它是木头地', () => {
+  // 这就是线上报的那个 bug。原先的判定只问"这一格产不产食物"，
+  // 森林的 food: 1 让它成立了，于是伐木的人也吃到锄头加成。
+  // 上面那条"斧头不给草原"测不到它：草原完全不产木材，
+  // 少数产出这种情形根本没被覆盖。
+  const g = camped();
+  const forest = tileYielding(g, 'wood');
+  assert.ok(TERRAIN[tileAt(g.map, forest)!.terrain].yields.food, '森林该产一点食物，测试前提不成立');
+
+  assign(g, forest);
+  craftTool(g, 'hoe');
+  assert.equal(workRateAt(g, forest).equipped, 0, '锄头不该在林子里算数');
+
+  // 同一片林子，换成斧头就吃得上
+  craftTool(g, 'axe');
+  assert.equal(workRateAt(g, forest).equipped, 1);
+  assert.equal(workRateAt(g, forest).bonus, 10);
+});
+
+test('每种地形的主产资源都登记过', () => {
+  // 加了新地形却没在这张表里露面，就是还没想清楚哪把工具吃得上它
+  const expected: Record<TerrainId, ResourceId[]> = {
+    ocean: [],
+    shallow: ['food'],
+    marsh: ['food', 'wood'],
+    grass: ['food'],
+    forest: ['wood'],
+    hills: ['stone'],
+    mountain: ['stone'],
+    desert: [],
+    tundra: ['food'],
+  };
+
+  assert.deepEqual(
+    Object.keys(TERRAIN).sort(),
+    Object.keys(expected).sort(),
+    '有地形没在这条测试里登记主产',
+  );
+  for (const [id, want] of Object.entries(expected)) {
+    assert.deepEqual([...primaryYields(id as TerrainId)].sort(), [...want].sort(), id);
+  }
 });
 
 test('撤人撤的是后来的那个，先部署的保住工具', () => {
