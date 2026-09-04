@@ -11,10 +11,16 @@ import { EffectDeltas } from './parts.jsx';
 import { t } from '../i18n.js';
 import './EventDialog.css';
 
-export default function EventDialog({ event, lang, allowed, onChoose }) {
+export default function EventDialog({ event, remaining, lang, allowed, onChoose }) {
   return (
     <div className="hg-event" role="dialog" aria-modal="true">
       <div className="hg-event__box">
+        {/* 一回合可能连着来好几件事，先告诉玩家后面还有 */}
+        {remaining > 1 && (
+          <p className="hg-event__more hg-dim">
+            {remaining - 1} {t(lang, 'moreEvents')}
+          </p>
+        )}
         <p className="hg-event__text">{event.text[lang]}</p>
 
         <div className="hg-event__choices">

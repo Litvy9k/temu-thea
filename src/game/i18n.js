@@ -37,6 +37,7 @@ export const STRINGS = {
   /** 只作为 "(tools +20)" 的注解出现，所以小写 */
   tools: { en: 'tools', zh: '工具' },
   personUnit: { en: ' people', zh: ' 人' },
+  moreEvents: { en: 'more after this', zh: '件在后面' },
   noEffect: { en: 'Nothing changes', zh: '什么也不会变' },
   cannotAfford: { en: 'Not enough for this', zh: '不够' },
   needWorkshop: { en: 'Build a workshop first', zh: '要先建工棚' },

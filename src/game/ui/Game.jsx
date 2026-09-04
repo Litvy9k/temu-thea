@@ -52,6 +52,7 @@ export default function Game({ lang = 'zh', seed, initialState = null, stateRef 
       {g.event && (
         <EventDialog
           event={g.event}
+          remaining={g.eventQueue}
           lang={lang}
           allowed={g.choiceAllowed}
           onChoose={g.choose}

@@ -113,10 +113,12 @@ export interface GameState {
   over: boolean;
 
   /**
-   * 正等玩家做选择的事件 id。非 null 时回合推不动 —— 先选，再继续。
-   * 存 id 不存对象：事件表是代码，存档里只该留一个引用。
+   * 排队等玩家做选择的事件 id。非空时回合推不动 —— 逐个选完才继续。
+   *
+   * 存 id 不存对象：事件表是代码，存档里只该留引用。
+   * 是队列不是单个，因为一回合可以触发多个事件。
    */
-  pendingEvent: string | null;
+  pendingEvents: string[];
   /** 已经触发过的 once 事件 */
   seenEvents: string[];
   /**
@@ -160,7 +162,7 @@ export function createGame(opts: NewGameOptions = {}): GameState {
     lastShortage: { food: 0, wood: 0 },
     hardship: 0,
     over: false,
-    pendingEvent: null,
+    pendingEvents: [],
     seenEvents: [],
     // 和地图种子错开，免得同一个种子下地形和事件的随机序列相关
     rngState: (seed ^ 0x2545f491) >>> 0,
@@ -525,9 +527,9 @@ export function craftTool(state: GameState, id: ToolId): boolean {
 
 export function endTurn(state: GameState): void {
   if (state.over) return;
-  // 有事件等着做选择就推不动回合。UI 那边按钮也会置灰，这里是兜底 ——
-  // 键盘快捷键和以后的自动化都会绕过按钮
-  if (state.pendingEvent) return;
+  // 还有事件等着做选择就推不动回合。UI 那边弹窗盖住了，这里是兜底 ——
+  // 键盘快捷键和以后的自动化都会绕过界面
+  if (state.pendingEvents.length) return;
 
   const income: Stock = { ...NO_STOCK };
 
@@ -614,10 +616,15 @@ export function metrics(state: GameState): Snapshot {
 }
 
 /**
- * 抽这一回合的事件。**一回合最多一个** —— 连弹几个框没法看。
+ * 抽这一回合的事件，命中几个就排几个。
  *
- * 按事件表的顺序逐个判定，先命中的先触发，所以表的顺序就是优先级。
- * 每个够格的事件各消耗一次随机数，彼此独立。
+ * 按事件表的顺序逐个判定，每个够格的事件各掷一次骰子、彼此独立，
+ * 命中的按表序进队列 —— **表的顺序就是弹出顺序**。
+ *
+ * 触发条件全部用回合结算完那一刻的同一份快照来判，队列一旦排好就不再变。
+ * 换成"每选完一个重新判一次"的话，玩家选了 A 之后 B 可能凭空消失，
+ * 那种事在界面上完全解释不了。选项的 require 是另一回事，那个实时判 ——
+ * 见 choiceAllowed。
  */
 function rollEvent(state: GameState): void {
   if (state.over) return;
@@ -633,16 +640,21 @@ function rollEvent(state: GameState): void {
     state.rngState = roll.next;
 
     if (roll.value < chance) {
-      state.pendingEvent = ev.id;
+      state.pendingEvents.push(ev.id);
       if (ev.once) state.seenEvents.push(ev.id);
-      return;
     }
   }
 }
 
-/** 当前挂着的事件对象。存档里存的是 id，这里还原 */
+/** 队首那个事件。存档里存的是 id，这里还原成对象 */
 export function currentEvent(state: GameState): GameEvent | null {
-  return state.pendingEvent ? (findEvent(state.pendingEvent) ?? null) : null;
+  const id = state.pendingEvents[0];
+  return id ? (findEvent(id) ?? null) : null;
+}
+
+/** 还有几个事件等着（含当前这个）。多于一个时界面上要提示还有后续 */
+export function pendingCount(state: GameState): number {
+  return state.pendingEvents.length;
 }
 
 /** 这个选择现在能不能选。不能选的在界面上置灰，不是藏起来 —— 玩家要看得见代价 */
@@ -659,7 +671,8 @@ export function chooseEvent(state: GameState, index: number): boolean {
   if (!choice || !choiceAllowed(state, choice)) return false;
 
   applyEffect(state, choice.effect);
-  state.pendingEvent = null;
+  // 只出队这一个，后面的接着弹
+  state.pendingEvents.shift();
   state.version += 1;
   return true;
 }

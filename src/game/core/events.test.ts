@@ -104,11 +104,11 @@ function forceEvent(id: string, prep: (g: GameState) => void): GameState {
   for (let seed = 1; seed < 400; seed += 1) {
     const g = createGame({ seed });
     prep(g);
-    for (let i = 0; i < 40 && !g.pendingEvent; i += 1) {
+    for (let i = 0; i < 40 && !g.pendingEvents.length; i += 1) {
       prep(g); // 每回合重新摆好条件，免得被消耗掉
       endTurn(g);
     }
-    if (g.pendingEvent === id) return g;
+    if (g.pendingEvents[0] === id) return g;
   }
   throw new Error(`跑了 400 个种子都没触发 ${id}，概率或条件有问题`);
 }
@@ -129,7 +129,7 @@ test('事件挂着的时候回合推不动', () => {
   const before = g.turn;
   endTurn(g);
   assert.equal(g.turn, before, '没做选择就不该能结束回合');
-  assert.ok(g.pendingEvent, '事件还该挂着');
+  assert.ok(g.pendingEvents.length, '事件还该挂着');
 });
 
 test('做出选择后效果落地，事件关掉，回合又能推了', () => {
@@ -142,7 +142,7 @@ test('做出选择后效果落地，事件关掉，回合又能推了', () => {
   const food = g.stock.food;
 
   assert.equal(chooseEvent(g, 0), true, '收留他们应该选得上');
-  assert.equal(g.pendingEvent, null);
+  assert.deepEqual(g.pendingEvents, []);
   assert.equal(g.party.people, people + 3);
   assert.equal(g.stock.food, food - 6);
 
@@ -161,12 +161,12 @@ test('资源不够时那个选择不可选，而且真的选不动', () => {
   const ev = currentEvent(g)!;
   assert.equal(choiceAllowed(g, ev.choices[0]), false);
   assert.equal(chooseEvent(g, 0), false, '不可选的选项不该结算得了');
-  assert.ok(g.pendingEvent, '选失败了事件就该还挂着');
+  assert.ok(g.pendingEvents.length, '选失败了事件就该还挂着');
 
   // 打发走没有条件，任何时候都选得上
   assert.equal(choiceAllowed(g, ev.choices[1]), true);
   assert.equal(chooseEvent(g, 1), true);
-  assert.equal(g.pendingEvent, null);
+  assert.deepEqual(g.pendingEvents, []);
 });
 
 test('效果把资源和人数夹在 0 以上，不会变成负数', () => {
@@ -202,8 +202,8 @@ test('once 事件一局只触发一次', () => {
     g.stock.wood = 20;
     g.party.people = 3;
     endTurn(g);
-    if (g.pendingEvent) {
-      assert.notEqual(g.pendingEvent, 'oldCache', 'once 事件又触发了一次');
+    if (g.pendingEvents.length) {
+      assert.ok(!g.pendingEvents.includes('oldCache'), 'once 事件又触发了一次');
       chooseEvent(g, freeChoice(g));
     }
   }
@@ -217,8 +217,8 @@ test('同一个种子跑出同一串事件 —— 随机数状态在 state 里',
       g.stock.food = 40;
       g.stock.wood = 40;
       endTurn(g);
-      if (g.pendingEvent) {
-        seen.push(`${g.turn}:${g.pendingEvent}`);
+      if (g.pendingEvents.length) {
+        seen.push(`${g.turn}:${g.pendingEvents[0]}`);
         chooseEvent(g, freeChoice(g));
       }
     }
@@ -228,6 +228,81 @@ test('同一个种子跑出同一串事件 —— 随机数状态在 state 里',
   const a = run();
   assert.ok(a.length > 0, '60 回合一个事件都没出，事件表或概率有问题');
   assert.deepEqual(run(), a, '同一个种子两次跑出了不同的事件序列');
+});
+
+/** 把局面推到某一回合同时排进 >= 2 个事件 */
+function forceMultiple(): GameState {
+  const prep = (g: GameState) => {
+    g.turn = Math.max(g.turn, 20);
+    g.stock.food = 40; // > 30，够 spoiled
+    g.stock.wood = 3; //  < 6， 够 hardWinter
+    g.party.people = 8;
+    makeCamp(g); // 让 idle 有意义，够 deserters
+  };
+
+  for (let seed = 1; seed < 600; seed += 1) {
+    const g = createGame({ seed });
+    for (let i = 0; i < 40; i += 1) {
+      prep(g);
+      endTurn(g);
+      if (g.pendingEvents.length >= 2) return g;
+      // 清掉队列继续推
+      while (g.pendingEvents.length) chooseEvent(g, freeChoice(g));
+    }
+  }
+  throw new Error('跑了 600 个种子都没有一回合排进两个事件');
+}
+
+test('一个回合可以同时排进多个事件', () => {
+  const g = forceMultiple();
+  assert.ok(g.pendingEvents.length >= 2, '应该排进至少两个');
+  assert.equal(
+    new Set(g.pendingEvents).size,
+    g.pendingEvents.length,
+    '同一个事件不该在一回合里排两次',
+  );
+});
+
+test('队列按事件表的顺序弹出', () => {
+  const g = forceMultiple();
+  const order = EVENTS.map((e) => e.id);
+  const queued = [...g.pendingEvents];
+  const sorted = [...queued].sort((x, y) => order.indexOf(x) - order.indexOf(y));
+  assert.deepEqual(queued, sorted, '队列顺序和表序不一致');
+});
+
+test('一次只出队一个，全部选完才推得动回合', () => {
+  const g = forceMultiple();
+  const n = g.pendingEvents.length;
+  const turn = g.turn;
+
+  chooseEvent(g, freeChoice(g));
+  assert.equal(g.pendingEvents.length, n - 1, '一次该只出队一个');
+
+  endTurn(g);
+  assert.equal(g.turn, turn, '还有事件挂着就不该能结束回合');
+
+  while (g.pendingEvents.length) chooseEvent(g, freeChoice(g));
+  endTurn(g);
+  assert.ok(g.turn > turn, '全部选完之后回合该能推了');
+});
+
+test('后一个事件的选项按前一个结算完的局面来判', () => {
+  // 队列的触发条件是回合结算那一刻定死的，但选项的 require 必须实时判：
+  // 前一个事件花掉的资源，后一个立刻就该看得到
+  const g = forceMultiple();
+  g.stock.food = 8;
+
+  const second = g.pendingEvents[1];
+  chooseEvent(g, freeChoice(g));
+  g.stock.food = 0; // 假装前一个把粮吃光了
+
+  const ev = currentEvent(g)!;
+  assert.equal(ev.id, second);
+  for (const c of ev.choices) {
+    const needsFood = (c.require ?? []).some((r) => r.metric === 'food' && r.value > 0);
+    if (needsFood) assert.equal(choiceAllowed(g, c), false, '没粮了还判成可选');
+  }
 });
 
 // ---------------------------------------------------------------- 事件表体检

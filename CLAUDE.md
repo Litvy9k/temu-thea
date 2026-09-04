@@ -107,8 +107,18 @@ change the map** in every old save — no error, just a different world. Saves
 carry a `v` field; a mismatch is rejected outright rather than force-parsed.
 `TERRAIN_CODES` in `save.ts` is **append-only: never reorder, never delete**.
 
-**Events: one per turn, table order is priority, OR-ed rules take the highest
-chance.** `events.ts` holds the table; `state.ts` rolls at the end of `endTurn`.
+**Events: every qualifying event rolls, all hits queue, table order is the pop
+order.** `events.ts` holds the table; `state.ts` rolls at the end of `endTurn`
+and pushes each hit onto `state.pendingEvents`. The turn stays blocked until the
+queue empties.
+
+**Trigger conditions are judged once, on the snapshot taken at the turn
+boundary; choice `require` is judged live.** Re-checking triggers between
+dialogs would let event B vanish because of what the player picked in event A —
+unexplainable on screen. But the resources A just spent must be visible to B, so
+`choiceAllowed()` reads current state every time.
+
+**OR-ed rules take the highest chance.**
 Within a rule the conditions are AND-ed; between rules they are OR-ed, and when
 several rules hold the **highest** chance wins rather than the sum — summing
 would mean "the more conditions you write, the more often it fires", which the

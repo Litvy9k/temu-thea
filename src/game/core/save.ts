@@ -91,6 +91,8 @@ interface SaveFile {
    * 而它们其实读得回来。只有改动会让旧数据被误读的时候才提版本 ——
    * 比如 TERRAIN_CODES 的顺序变了。
    */
+  pendingEvents?: string[];
+  /** 旧存档里事件是单个不是队列，读档时并进 pendingEvents */
   pendingEvent?: string | null;
   seenEvents?: string[];
   rngState?: number;
@@ -127,7 +129,7 @@ export function serialize(state: GameState): string {
     lastShortage: state.lastShortage,
     hardship: state.hardship,
     over: state.over,
-    pendingEvent: state.pendingEvent,
+    pendingEvents: state.pendingEvents,
     seenEvents: state.seenEvents,
     rngState: state.rngState,
     map: {
@@ -236,7 +238,9 @@ export function parseSave(text: string): GameState {
     lastShortage: file.lastShortage ?? { food: 0, wood: 0 },
     hardship: file.hardship ?? 0,
     over: Boolean(file.over),
-    pendingEvent: file.pendingEvent ?? null,
+    // 旧存档存的是单个 pendingEvent，包成队列 —— 加字段并给了安全默认值
+    // 就不该提 v，提了等于把读得回来的存档全部作废
+    pendingEvents: file.pendingEvents ?? (file.pendingEvent ? [file.pendingEvent] : []),
     seenEvents: file.seenEvents ?? [],
     // 旧存档没有随机数状态，按地图种子重新起一个 —— 和 createGame 同一条路
     rngState: file.rngState ?? ((map.seed ^ 0x2545f491) >>> 0),

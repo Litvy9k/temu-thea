@@ -17,6 +17,7 @@ import {
   chooseEvent,
   choiceAllowed,
   currentEvent,
+  pendingCount,
   buildFacility,
   craftTool,
   campBlocker,
@@ -352,8 +353,10 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
     openCamp: () => setCampOpen(true),
     closeCamp: () => setCampOpen(false),
 
-    /** 正等玩家做选择的事件，没有就是 null */
+    /** 队首那个待选事件，没有就是 null */
     event: currentEvent(game),
+    /** 还排着几个（含当前）。大于 1 时弹窗上要提示还有后续 */
+    eventQueue: pendingCount(game),
     choiceAllowed: (choice) => choiceAllowed(game, choice),
     choose,
 

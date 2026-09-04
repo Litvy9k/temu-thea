@@ -167,9 +167,11 @@ line of text, and one or more choices with effects:
 
 Metrics are `turn`, `people`, `idle`, `food`, `wood`, `stone`; operators are
 `>`, `>=`, `<`, `<=`, `==`. Conditions inside one rule are AND-ed, rules are
-OR-ed, and the highest matching chance is used. At most one event fires per
-turn, tried in table order, and a pending event blocks the turn until the player
-chooses. Add `once: true` for one-shot events.
+OR-ed, and the highest matching chance is used.
+
+Every qualifying event rolls its own dice each turn, so a turn can raise several.
+They queue in table order and are shown one at a time; the turn stays blocked
+until the queue is empty. Add `once: true` for one-shot events.
 
 Effects are pure data (`stock`, `people`, `tools`), so the dialog renders
 "−6✦ +3 people" straight from the numbers instead of a hand-written line that
