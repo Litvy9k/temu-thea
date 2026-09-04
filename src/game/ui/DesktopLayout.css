@@ -4,25 +4,25 @@
  */
 .hexgame--wide .hg-panel {
   position: absolute;
-  padding: 10px 12px;
+  padding: calc(10 * var(--u)) calc(12 * var(--u));
   background: var(--panel);
   border: var(--line-w, 1px) solid var(--line);
   backdrop-filter: blur(2px);
 }
 
 .hexgame--wide .hg-hud {
-  top: 12px;
-  left: 12px;
+  top: calc(12 * var(--u));
+  left: calc(12 * var(--u));
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 200px;
+  gap: calc(8 * var(--u));
+  min-width: calc(200 * var(--u));
 }
 
 .hexgame--wide .hg-row {
   display: flex;
   justify-content: space-between;
-  gap: 14px;
+  gap: calc(14 * var(--u));
   white-space: nowrap;
 }
 
@@ -37,12 +37,12 @@
 }
 
 .hexgame--wide .hg-tile {
-  right: 12px;
-  bottom: 12px;
+  right: calc(12 * var(--u));
+  bottom: calc(12 * var(--u));
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 180px;
+  gap: calc(6 * var(--u));
+  min-width: calc(180 * var(--u));
 }
 
 .hexgame--wide .hg-tile .hg-tile__head {
@@ -50,13 +50,13 @@
 }
 
 .hexgame--wide .hg-tile .hg-stepper {
-  margin-top: 2px;
+  margin-top: calc(2 * var(--u));
 }
 
 .hexgame--wide .hg-hint {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
+  left: calc(12 * var(--u));
+  bottom: calc(12 * var(--u));
   color: var(--ink-dim);
   pointer-events: none;
 }
@@ -64,8 +64,8 @@
 /* 营地入口：右上角独立按钮，不塞进左上的 HUD ——
    HUD 是每回合都在读的仪表盘，混进一个几十回合才点一次的入口会拖慢阅读 */
 .hexgame--wide .hg-camp-open {
-  top: 12px;
-  right: 12px;
+  top: calc(12 * var(--u));
+  right: calc(12 * var(--u));
   cursor: pointer;
 }
 

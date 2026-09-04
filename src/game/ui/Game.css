@@ -13,8 +13,16 @@
   --accent: #7ce6be;
   --warn: #ff8b6b;
   --idle: #ffc98c;
+  /*
+   * 整套界面的缩放单位。--u 在默认字号下正好等于 1px，所以下面所有
+   * calc(N * var(--u)) 读起来就是"原来的 N px"。
+   * 宿主把 --game-font-size 调大，间距、内边距、点击区就一起跟着长 ——
+   * 只放大字号而留死间距的话，字会挤在原来的框里。
+   */
+  --u: calc(var(--game-font-size, 13px) / 13);
+
   /* 可点区域的下限 */
-  --tap: 30px;
+  --tap: calc(30 * var(--u));
 
   /*
    * 描边粗细没有在这里定义，而是在用到的地方写成 var(--line-w, 1px)。
@@ -41,7 +49,8 @@
    * font-weight / style / variant 复位成 normal，拆开就丢了这层保护，
    * 宿主那边一个粗体就会漏进来。
    */
-  font: 13px/1.5 var(--game-font, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font: var(--game-font-size, 13px)/1.5
+    var(--game-font, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   user-select: none;
   -webkit-user-select: none;
   /* 长按不要弹出 iOS 的系统菜单，点击不要闪蓝框 */
@@ -55,7 +64,7 @@
  */
 @media (pointer: coarse) {
   .hexgame {
-    --tap: 44px;
+    --tap: calc(44 * var(--u));
   }
 }
 
@@ -107,7 +116,7 @@
 }
 
 .hexgame .hg-sep {
-  height: 1px;
+  height: var(--line-w, 1px);
   background: var(--line);
 }
 
@@ -117,7 +126,7 @@
 }
 
 .hexgame button {
-  padding: 6px 10px;
+  padding: calc(6 * var(--u)) calc(10 * var(--u));
   color: var(--ink);
   background: transparent;
   border: var(--line-w, 1px) solid var(--line);
@@ -144,7 +153,7 @@
 
 .hexgame .hg-actions {
   display: flex;
-  gap: 8px;
+  gap: calc(8 * var(--u));
 }
 
 .hexgame .hg-actions button {
@@ -169,7 +178,7 @@
 .hexgame .hg-res {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: calc(6 * var(--u));
   white-space: nowrap;
 }
 
@@ -186,12 +195,12 @@
 }
 
 .hexgame .hg-yield + .hg-yield {
-  margin-left: 6px;
+  margin-left: calc(6 * var(--u));
 }
 
 .hexgame .hg-tile__head {
   display: flex;
-  gap: 10px;
+  gap: calc(10 * var(--u));
   align-items: baseline;
 }
 
@@ -199,19 +208,19 @@
 .hexgame .hg-stepper {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8 * var(--u));
 }
 
 .hexgame .hg-stepper button {
   width: var(--tap);
   height: var(--tap);
   padding: 0;
-  font-size: 18px;
+  font-size: calc(18 * var(--u));
   line-height: 1;
 }
 
 .hexgame .hg-stepper__count {
-  min-width: 46px;
+  min-width: calc(46 * var(--u));
   text-align: center;
   color: var(--accent);
   font-weight: 600;

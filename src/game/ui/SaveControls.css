@@ -5,7 +5,7 @@
 .hg-save {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: calc(6 * var(--u));
   flex-wrap: wrap;
 }
 
@@ -15,5 +15,5 @@
 
 .hg-save__error {
   color: #ff8b6b;
-  font-size: 12px;
+  font-size: calc(12 * var(--u));
 }

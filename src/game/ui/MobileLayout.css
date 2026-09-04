@@ -15,7 +15,7 @@
 
 .hexgame--narrow .hg-m-status {
   top: 0;
-  padding: 8px 10px;
+  padding: calc(8 * var(--u)) calc(10 * var(--u));
   border-bottom: var(--line-w, 1px) solid var(--line);
 }
 
@@ -23,11 +23,11 @@
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  gap: calc(4 * var(--u)) calc(12 * var(--u));
 }
 
 .hexgame--narrow .hg-m-status__line + .hg-m-status__line {
-  margin-top: 4px;
+  margin-top: calc(4 * var(--u));
 }
 
 /* ---------------------------------------------------------------- 拇指区 */
@@ -36,17 +36,17 @@
   bottom: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px;
+  gap: calc(8 * var(--u));
+  padding: calc(10 * var(--u));
   /* 刘海屏 / 手势条：底部留出安全区，否则按钮会被系统条压掉一截 */
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(10 * var(--u) + env(safe-area-inset-bottom, 0px));
   border-top: var(--line-w, 1px) solid var(--line);
 }
 
 .hexgame--narrow .hg-m-sheet {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: calc(12 * var(--u));
 }
 
 .hexgame--narrow .hg-m-sheet__facts {
@@ -64,7 +64,7 @@
  */
 .hexgame--narrow .hg-actions button {
   min-height: var(--tap);
-  font-size: 14px;
+  font-size: calc(14 * var(--u));
 }
 
 /* 手机上营地面板盖满整块：并排放不下，而建造时本来也不需要盯着地图 */
