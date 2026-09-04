@@ -16,7 +16,7 @@
 .hexgame--narrow .hg-m-status {
   top: 0;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--line-w, 1px) solid var(--line);
 }
 
 .hexgame--narrow .hg-m-status__line {
@@ -40,7 +40,7 @@
   padding: 10px;
   /* 刘海屏 / 手势条：底部留出安全区，否则按钮会被系统条压掉一截 */
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--line);
+  border-top: var(--line-w, 1px) solid var(--line);
 }
 
 .hexgame--narrow .hg-m-sheet {

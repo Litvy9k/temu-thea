@@ -69,6 +69,21 @@ src/App.jsx          dev shell, thrown away on integration
 scripts/             the two terminal tools above
 ```
 
+## What the host can restyle
+
+`src/game/ui/Game.css` puts its palette on `.hexgame` — `--ink`, `--ink-dim`,
+`--line`, `--panel`, `--accent`, `--warn`, `--idle`.
+
+Border thickness is the one knob deliberately *not* declared there. It is
+written as `var(--line-w, 1px)` at each of the six places that draw a line, so
+a host can set `--line-w` on any ancestor and every rule follows. Declaring it
+on `.hexgame` would defeat that: custom properties resolve by inheritance and
+the nearest declaration wins, so the game's own value would override whatever
+the host set further out.
+
+`SaveControls` is styled by the host too — its stylesheet sets layout only, no
+colours or borders.
+
 ## Rules that are settled
 
 **Layout switches on container width; tap-target size switches on

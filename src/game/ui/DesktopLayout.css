@@ -6,7 +6,7 @@
   position: absolute;
   padding: 10px 12px;
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: var(--line-w, 1px) solid var(--line);
   backdrop-filter: blur(2px);
 }
 
@@ -72,7 +72,7 @@
 /* 容器够宽：面板在 flex 流里占一栏，把地图挤窄而不是盖住 */
 .hexgame--wide .hg-camp {
   flex: 0 0 var(--camp-w);
-  border-left: 1px solid var(--line);
+  border-left: var(--line-w, 1px) solid var(--line);
 }
 
 /*

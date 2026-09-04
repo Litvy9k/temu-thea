@@ -16,6 +16,14 @@
   /* 可点区域的下限 */
   --tap: 30px;
 
+  /*
+   * 描边粗细没有在这里定义，而是在用到的地方写成 var(--line-w, 1px)。
+   * 这是有意的：定义在 .hexgame 上的话，宿主在外层设同名变量会被这一条
+   * 盖掉 —— 自定义属性按继承取值，就近的赢。留成"不定义 + 兜底 1px"，
+   * 宿主在任意祖先上写一句 --line-w: 2px 就能整体加粗，不写就还是 1px。
+   * 颜色同理走 --line。
+   */
+
   position: relative;
   width: 100%;
   height: 100%;
@@ -102,7 +110,7 @@
   padding: 6px 10px;
   color: var(--ink);
   background: transparent;
-  border: 1px solid var(--line);
+  border: var(--line-w, 1px) solid var(--line);
   font: inherit;
   cursor: pointer;
   /* 去掉移动端点击的 300ms 延迟 */
