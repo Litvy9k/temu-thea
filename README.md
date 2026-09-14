@@ -1,3 +1,6 @@
+https://l9k.dev/game/
+At a very early stage
+
 # temu-thea
 
 A hex-grid survival game on a big procedural map. Roam, make camp, assign
