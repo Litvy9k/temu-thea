@@ -9,7 +9,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CAMPED,
   EVENTS,
+  ROAMING,
   type Rule,
   type Snapshot,
   chanceOf,
@@ -20,6 +22,7 @@ import {
 import {
   chooseEvent,
   choiceAllowed,
+  breakCamp,
   createGame,
   currentEvent,
   endTurn,
@@ -37,6 +40,7 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   food: 10,
   wood: 10,
   stone: 0,
+  camped: 1,
   ...over,
 });
 
@@ -97,6 +101,41 @@ test('idle 只在扎营时才有意义', () => {
   assert.equal(metrics(g).idle, g.party.people - 1);
 });
 
+test('camped 这个 metric 跟着扎营状态走', () => {
+  const g = createGame({ seed: 'thea' });
+  assert.equal(metrics(g).camped, 0, '游荡时该是 0');
+
+  makeCamp(g);
+  assert.equal(metrics(g).camped, 1, '扎营后该是 1');
+
+  breakCamp(g);
+  assert.equal(metrics(g).camped, 0, '拔营后该回到 0');
+});
+
+test('CAMPED / ROAMING 把触发概率直接压到 0', () => {
+  const campOnly: Rule[] = [{ when: [CAMPED], chance: 0.5 }];
+  const roamOnly: Rule[] = [{ when: [ROAMING], chance: 0.5 }];
+
+  assert.equal(chanceOf(snap({ camped: 1 }), campOnly), 0.5);
+  assert.equal(chanceOf(snap({ camped: 0 }), campOnly), 0, '游荡时不该有概率');
+  assert.equal(chanceOf(snap({ camped: 0 }), roamOnly), 0.5);
+  assert.equal(chanceOf(snap({ camped: 1 }), roamOnly), 0, '扎营时不该有概率');
+});
+
+test('只在扎营时的事件，游荡一路都不会冒出来', () => {
+  // 这是加 camped 的直接目的：wanderers 的文案写着"循着炊烟"，
+  // 而在此之前它游荡时照样触发
+  const g = createGame({ seed: 'thea' });
+  for (let i = 0; i < 150; i += 1) {
+    g.stock.food = 40;
+    g.stock.wood = 40;
+    g.party.people = 6;
+    endTurn(g);
+    assert.ok(!g.pendingEvents.includes('wanderers'), '游荡时不该出现循着炊烟来的人');
+    while (g.pendingEvents.length) chooseEvent(g, freeChoice(g));
+  }
+});
+
 // ---------------------------------------------------------------- 流程
 
 /** 把局面推到必然触发某个事件，返回那一局 */
@@ -124,6 +163,7 @@ test('事件挂着的时候回合推不动', () => {
   const g = forceEvent('wanderers', (s) => {
     s.stock.food = 20;
     s.stock.wood = 20;
+    makeCamp(s); // 循着炊烟来的，没扎营不触发
   });
 
   const before = g.turn;
@@ -136,6 +176,7 @@ test('做出选择后效果落地，事件关掉，回合又能推了', () => {
   const g = forceEvent('wanderers', (s) => {
     s.stock.food = 20;
     s.stock.wood = 20;
+    makeCamp(s); // 循着炊烟来的，没扎营不触发
   });
 
   const people = g.party.people;
@@ -155,6 +196,7 @@ test('资源不够时那个选择不可选，而且真的选不动', () => {
   const g = forceEvent('wanderers', (s) => {
     s.stock.food = 20;
     s.stock.wood = 20;
+    makeCamp(s); // 循着炊烟来的，没扎营不触发
   });
 
   g.stock.food = 1; // 收留他们要 6
@@ -350,18 +392,30 @@ test('两种语言的文案都在，而且不是照抄', () => {
 test('表里每个事件都真的触发得了', () => {
   // 条件写矛盾了（比如 food > 30 且 food < 5）在代码里看不出来，
   // 只有玩到那一回合才发现它永远不出现
+  const base = (g: GameState) => {
+    g.turn = Math.max(g.turn, 20);
+    g.stock.food = 40;
+    g.stock.wood = 3;
+    g.party.people = 8;
+  };
+  // 表里既有只在扎营时触发的，也有只在游荡时触发的，两种局面都要试
+  const preps = [
+    (g: GameState) => {
+      base(g);
+      makeCamp(g);
+    },
+    base,
+  ];
+
   for (const e of EVENTS) {
-    assert.doesNotThrow(
-      () =>
-        forceEvent(e.id, (s) => {
-          s.turn = Math.max(s.turn, 20);
-          s.stock.food = 40;
-          s.stock.wood = 3;
-          s.party.people = 8;
-          // 扎营，否则 idle 恒为 0，靠闲人触发的事件永远够不着
-          makeCamp(s);
-        }),
-      `${e.id} 触发不了`,
-    );
+    const ok = preps.some((prep) => {
+      try {
+        forceEvent(e.id, prep);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    assert.ok(ok, `${e.id} 无论扎营还是游荡都触发不了`);
   }
 });

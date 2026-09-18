@@ -135,6 +135,12 @@ be reproducible from a seed, testable, and consistent across a save/load — a
 global RNG loses all three. `rng.ts` exposes `step()` as a pure function for
 exactly this; `mulberry32()` is built on it so there is only one generator.
 
+**`camped` is a 0/1 metric, not a second kind of condition.** Whether the party
+has camped is a boolean, but giving it its own condition shape would mean a
+second evaluator, a second set of validation and a second set of tests, and buy
+only a few characters at the call site. The exported `CAMPED` / `ROAMING`
+constants keep the table readable without any of that.
+
 **The `idle` metric is 0 while roaming.** `idleCount()` is "people minus
 assigned", and with no camp nothing is assigned — read literally, everyone is
 idle forever and "the idle ones talk about leaving" fires on turn 2, before the

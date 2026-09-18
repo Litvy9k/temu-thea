@@ -7,8 +7,8 @@
  *
  * 几条定死的规则：
  *
- *   一回合最多触发一个事件。按表的顺序判定，先命中的先触发 ——
- *   **表的顺序就是优先级**，把要紧的事件往前放。
+ *   一回合里每个够格的事件各掷各的骰子，命中的按表序进队列逐个弹出 ——
+ *   **表的顺序就是弹出顺序**，把要紧的事件往前放。
  *
  *   trigger 是一个数组，条目之间 OR，条目内部的 when 之间 AND。
  *   多个条目同时成立时取**概率最高**的那个，不叠加 —— 叠加会变成
@@ -27,8 +27,14 @@ export interface Bilingual {
 
 // ---------------------------------------------------------------- 条件
 
-/** 能拿来做条件的数值。加新的要同时在 state.ts 的 snapshot() 里给出取值 */
-export type Metric = 'turn' | 'people' | 'idle' | 'food' | 'wood' | 'stone';
+/**
+ * 能拿来做条件的数值。加新的要同时在 state.ts 的 metrics() 里给出取值。
+ *
+ * camped 是 0/1 —— 扎营与否本来是布尔，但没有为它单开一套条件类型：
+ * 多一种条件形状就要多一套判定、校验和测试，而收益只是少写几个字。
+ * 表里用下面的 CAMPED / ROAMING 常量，读起来照样是人话。
+ */
+export type Metric = 'turn' | 'people' | 'idle' | 'food' | 'wood' | 'stone' | 'camped';
 
 export type Op = '>' | '>=' | '<' | '<=' | '==';
 
@@ -40,6 +46,12 @@ export interface Condition {
 
 /** 当前局面里这些数值的快照。判定只看它，不看整个 GameState */
 export type Snapshot = Record<Metric, number>;
+
+/** 只在扎营时。写进 when 里，和别的条件一起 AND */
+export const CAMPED: Condition = { metric: 'camped', op: '==', value: 1 };
+
+/** 只在游荡时 */
+export const ROAMING: Condition = { metric: 'camped', op: '==', value: 0 };
 
 export interface Rule {
   /** 这些条件全部成立才算这一条命中（AND） */
@@ -145,7 +157,8 @@ export const EVENTS: GameEvent[] = [
       en: 'Three travellers follow your smoke in. They can work, and they are hungry.',
       zh: '三个人循着炊烟找过来。他们能干活，也饿着。',
     },
-    trigger: [{ when: [{ metric: 'turn', op: '>=', value: 4 }], chance: 0.12 }],
+    // 文案里写着"循着炊烟" —— 没扎营就没有炊烟，所以只在扎营时
+    trigger: [{ when: [CAMPED, { metric: 'turn', op: '>=', value: 4 }], chance: 0.12 }],
     choices: [
       {
         label: { en: 'Take them in', zh: '收留他们' },
@@ -186,7 +199,9 @@ export const EVENTS: GameEvent[] = [
       en: 'People with nothing to do start talking about leaving.',
       zh: '闲着的人开始念叨要走。',
     },
-    trigger: [{ when: [{ metric: 'idle', op: '>=', value: 3 }], chance: 0.2 }],
+    // idle 在游荡时恒为 0，所以 CAMPED 眼下是多余的 —— 但它写下的是意图：
+    // 哪天 idle 的口径变了，这条不会悄悄开始在赶路途中触发
+    trigger: [{ when: [CAMPED, { metric: 'idle', op: '>=', value: 3 }], chance: 0.2 }],
     choices: [
       {
         label: { en: 'Hand out extra rations', zh: '多分口粮安抚' },
@@ -207,7 +222,8 @@ export const EVENTS: GameEvent[] = [
       en: 'Under a fallen cairn: someone else came through here, and did not come back for their things.',
       zh: '塌了的石堆下面：有人从这里经过，再没回来取自己的东西。',
     },
-    trigger: [{ when: [{ metric: 'turn', op: '>=', value: 6 }], chance: 0.12 }],
+    // 是路过时在塌掉的石堆下发现的，所以只在游荡时
+    trigger: [{ when: [ROAMING, { metric: 'turn', op: '>=', value: 6 }], chance: 0.12 }],
     // 只有一个选择也是合法的：不是所有事件都该给选择权
     choices: [
       {

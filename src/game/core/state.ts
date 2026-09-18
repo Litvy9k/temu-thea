@@ -603,6 +603,7 @@ export function metrics(state: GameState): Snapshot {
   return {
     turn: state.turn,
     people: state.party.people,
+    camped: state.camp ? 1 : 0,
     /*
      * 游荡时算 0，不算"全员闲置"。idleCount 是"人数 − 已派工"，而游荡时
      * 没有营地、派工恒为 0 —— 直接用它的话所有人永远算闲着，"闲人要走"

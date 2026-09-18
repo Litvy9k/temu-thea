@@ -168,9 +168,14 @@ line of text, and one or more choices with effects:
 }
 ```
 
-Metrics are `turn`, `people`, `idle`, `food`, `wood`, `stone`; operators are
-`>`, `>=`, `<`, `<=`, `==`. Conditions inside one rule are AND-ed, rules are
-OR-ed, and the highest matching chance is used.
+Metrics are `turn`, `people`, `idle`, `food`, `wood`, `stone` and `camped`;
+operators are `>`, `>=`, `<`, `<=`, `==`. Conditions inside one rule are AND-ed,
+rules are OR-ed, and the highest matching chance is used.
+
+`camped` is 0 or 1, and the exported `CAMPED` / `ROAMING` constants drop
+straight into a `when` array — `wanderers` is camped-only because the text says
+they follow your smoke in, `oldCache` is roaming-only because you stumble over
+it on the way past.
 
 Every qualifying event rolls its own dice each turn, so a turn can raise several.
 They queue in table order and are shown one at a time; the turn stays blocked
