@@ -11,7 +11,7 @@
  *            否则以后一动地形表或噪声参数，所有老存档的地图都会悄悄变样
  */
 import type { GameMap, Tile } from './map.ts';
-import { type GameState, refreshVision } from './state.ts';
+import { type GameState, type Stock, refreshVision } from './state.ts';
 import type { TerrainId } from './terrain.ts';
 
 export const SAVE_VERSION = 1;
@@ -82,6 +82,8 @@ interface SaveFile {
   works: GameState['works'];
   lastIncome: GameState['lastIncome'];
   lastShortage: GameState['lastShortage'];
+  /** 后加的字段，旧存档没有，读档时给默认值 */
+  lastWasted?: Stock;
   hardship: number;
   over: boolean;
   /**
@@ -127,6 +129,7 @@ export function serialize(state: GameState): string {
     works: state.works,
     lastIncome: state.lastIncome,
     lastShortage: state.lastShortage,
+    lastWasted: state.lastWasted,
     hardship: state.hardship,
     over: state.over,
     pendingEvents: state.pendingEvents,
@@ -236,6 +239,7 @@ export function parseSave(text: string): GameState {
     stock: file.stock,
     lastIncome: file.lastIncome ?? { food: 0, wood: 0, stone: 0 },
     lastShortage: file.lastShortage ?? { food: 0, wood: 0 },
+    lastWasted: file.lastWasted ?? { food: 0, wood: 0, stone: 0 },
     hardship: file.hardship ?? 0,
     over: Boolean(file.over),
     // 旧存档存的是单个 pendingEvent，包成队列 —— 加字段并给了安全默认值

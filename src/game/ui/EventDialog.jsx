@@ -11,7 +11,7 @@ import { EffectDeltas } from './parts.jsx';
 import { t } from '../i18n.js';
 import './EventDialog.css';
 
-export default function EventDialog({ event, remaining, lang, allowed, onChoose }) {
+export default function EventDialog({ event, remaining, stock, people, lang, allowed, onChoose }) {
   return (
     <div className="hg-event" role="dialog" aria-modal="true">
       <div className="hg-event__box">
@@ -36,7 +36,7 @@ export default function EventDialog({ event, remaining, lang, allowed, onChoose 
               >
                 <span className="hg-event__label">{choice.label[lang]}</span>
                 <span className="hg-event__effect">
-                  <EffectDeltas effect={choice.effect} lang={lang} />
+                  <EffectDeltas effect={choice.effect} stock={stock} people={people} lang={lang} />
                 </span>
                 {/* 不可选时说明差在哪，否则玩家只看到一个灰按钮 */}
                 {!ok && <span className="hg-warn">{t(lang, 'cannotAfford')}</span>}

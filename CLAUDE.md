@@ -107,6 +107,25 @@ change the map** in every old save — no error, just a different world. Saves
 carry a `v` field; a mismatch is rejected outright rather than force-parsed.
 `TERRAIN_CODES` in `save.ts` is **append-only: never reorder, never delete**.
 
+**Stocks are capped, and everything that adds to them goes through
+`clampToCap()`.** Without a cap, wood measured 1474 by turn 80 — a number, not
+a decision. With one, every turn of surplus has to be **spent or thrown away**,
+which is what makes facilities, tools and every future sink matter. It also fits
+the fiction: a nomadic party carries what it can lift.
+
+The danger is a path that adds resources without clamping — turn resolution
+clamps but an event reward does not, and that event silently becomes a way
+around the cap. `economy.test.ts` asserts each adding path separately. **Waste
+is shown in the HUD**; hidden waste reads as "income says +19 but the stock did
+not move", which players report as a bug.
+
+**Event effects can be proportional (`stockPct`, `peoplePct`).** Some losses are
+inherently a fraction — spoilage rots *part* of the store, not a fixed ten. The
+percentage is taken from the stock **before** the same effect’s absolute terms
+are applied, so writing order cannot change the result, and it always removes at
+least 1 when there is anything to take: rounding to zero is the most confusing
+kind of "it fired but nothing happened".
+
 **Events: every qualifying event rolls, all hits queue, table order is the pop
 order.** `events.ts` holds the table; `state.ts` rolls at the end of `endTurn`
 and pushes each hit onto `state.pendingEvents`. The turn stays blocked until the

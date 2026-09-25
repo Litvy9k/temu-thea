@@ -12,15 +12,24 @@ import { t } from './../i18n.js';
 export const RESOURCE_ORDER = ['food', 'wood', 'stone'];
 
 /** 一种资源的存量和上回合收支 */
-export function Resource({ id, stock, income, short, lang }) {
-  const trend = short > 0 ? 'down' : income > 0 ? 'up' : income < 0 ? 'down' : '';
+export function Resource({ id, stock, cap, income, short, wasted, lang }) {
+  // 顶到上限时的提示优先级最高：那一刻玩家看到的"收支 +19 存量没动"
+  // 如果没人解释，会被当成 bug
+  const full = stock >= cap;
+  const trend = short > 0 || wasted > 0 ? 'down' : income > 0 ? 'up' : income < 0 ? 'down' : '';
+
   return (
     <span className="hg-res">
       <span className="hg-res__name">
         {RESOURCES[id].glyph} {RESOURCES[id].label[lang]}
       </span>
-      <b>{stock}</b>
-      <span className={`hg-res__income ${trend}`}>{income > 0 ? `+${income}` : income}</span>
+      <b className={full ? 'hg-res__full' : undefined}>
+        {stock}
+        <span className="hg-res__cap">/{cap}</span>
+      </b>
+      <span className={`hg-res__income ${trend}`}>
+        {wasted > 0 ? -wasted : income > 0 ? `+${income}` : income}
+      </span>
     </span>
   );
 }
@@ -31,14 +40,23 @@ export function Resource({ id, stock, income, short, lang }) {
  * 从数据算出来而不是让事件表手写一份说明 —— 手写的那份迟早和数值对不上，
  * 而这种对不上没人会发现：文案说 −6，实际扣 8，玩家只当自己记错了。
  */
-export function EffectDeltas({ effect, lang }) {
+export function EffectDeltas({ effect, stock, people, lang }) {
   const bits = [];
 
+  // 比例项按当前存量折算成实际数字再显示 —— 写"−30%"要玩家自己心算，
+  // 而他真正想知道的是"这一下会少掉多少"
+  const pct = (cur, p) => {
+    if (!p || cur <= 0) return 0;
+    const raw = Math.round(cur * p);
+    return raw !== 0 ? raw : Math.sign(p);
+  };
+
   for (const id of RESOURCE_ORDER) {
-    const n = effect.stock?.[id];
+    const n = (effect.stock?.[id] ?? 0) + pct(stock?.[id] ?? 0, effect.stockPct?.[id] ?? 0);
     if (n) bits.push({ key: id, n, unit: RESOURCES[id].glyph });
   }
-  if (effect.people) bits.push({ key: 'people', n: effect.people, unit: t(lang, 'personUnit') });
+  const dp = (effect.people ?? 0) + pct(people ?? 0, effect.peoplePct ?? 0);
+  if (dp) bits.push({ key: 'people', n: dp, unit: t(lang, 'personUnit') });
   for (const [id, n] of Object.entries(effect.tools ?? {})) {
     if (n) bits.push({ key: id, n, unit: TOOLS[id].label[lang] });
   }

@@ -69,6 +69,19 @@ export const UPKEEP_FOOD_PER_PERSON = 1;
  */
 export const UPKEEP_WOOD_PER_TURN = 1;
 
+/**
+ * 每种资源的基础储量上限。
+ *
+ * 加上限是为了让"盈余"重新有意义：没有它时木材会涨到一千多，那只是个数字，
+ * 后面再加多少消耗出口都激不起决策。有了上限，每回合的盈余必须**花掉或者
+ * 浪费掉**，于是设施、工具、以后的任务和装备自动都变得要紧。
+ *
+ * 设定上也对得上：一支游牧队伍只能带走扛得动的东西。
+ */
+export const STOCK_BASE_CAP = 40;
+/** 仓库把上限抬高多少 */
+export const STORE_CAP_BONUS = 40;
+
 export interface Party {
   at: Axial;
   moves: number;
@@ -107,6 +120,11 @@ export interface GameState {
   lastIncome: Stock;
   /** 上一回合各资源的缺口（正数表示差多少） */
   lastShortage: { food: number; wood: number };
+  /**
+   * 上一回合因为顶到储量上限而倒掉的量。必须显示出来 —— 不显示的话玩家
+   * 只会看到"收支 +19 但存量没动"，以为是 bug。
+   */
+  lastWasted: Stock;
   /** 连续吃不上饭 / 烧不上火的回合数 */
   hardship: number;
   /** 人死光了 */
@@ -160,6 +178,7 @@ export function createGame(opts: NewGameOptions = {}): GameState {
     stock: { food: 12, wood: 12, stone: 0 },
     lastIncome: { ...NO_STOCK },
     lastShortage: { food: 0, wood: 0 },
+    lastWasted: { ...NO_STOCK },
     hardship: 0,
     over: false,
     pendingEvents: [],
@@ -565,6 +584,9 @@ export function endTurn(state: GameState): void {
   state.stock.wood += income.wood;
   state.stock.stone += income.stone;
 
+  // 顶到上限的部分倒掉，但要记下来给 HUD 显示
+  state.lastWasted = clampToCap(state);
+
   // 缺口：任何一样不够，都要减员。食物是饿死，木材是冻死，代价一样
   const shortage = {
     food: Math.max(0, -state.stock.food),
@@ -682,18 +704,70 @@ export function chooseEvent(state: GameState, index: number): boolean {
  * 结算一个效果。资源和人数都夹在 0 以上 —— 事件表里写 -10 食物时，
  * 作者想的是"扣掉十份粮"，不是"允许欠债"。
  */
+/** 当前每种资源的储量上限。以后要按资源分别设，改这一处 */
+export function stockCap(state: GameState): number {
+  return STOCK_BASE_CAP + (hasFacility(state, 'store') ? STORE_CAP_BONUS : 0);
+}
+
+/**
+ * 把库存夹进 0..上限，返回各资源被倒掉的量。
+ *
+ * **所有让库存增加的路径都要过这里** —— 回合结算、事件奖励，以后的任务奖励。
+ * 漏掉一条，那条路径就能绕过上限，而绕过去的东西在界面上完全看不出来。
+ */
+function clampToCap(state: GameState): Stock {
+  const cap = stockCap(state);
+  const wasted: Stock = { ...NO_STOCK };
+
+  for (const res of Object.keys(state.stock) as ResourceId[]) {
+    const over = state.stock[res] - cap;
+    if (over > 0) {
+      wasted[res] = over;
+      state.stock[res] = cap;
+    }
+  }
+  return wasted;
+}
+
+/**
+ * 按当前存量取一个比例，返回增减量。
+ *
+ * 只要还有东西可拿就至少拿走 1 —— 四舍五入到 0 会让"扣三成存粮"在存粮
+ * 只剩 2 的时候变成什么也没发生，那是最让人困惑的一种"生效了但没效果"。
+ */
+function byPercent(current: number, pct: number): number {
+  if (!pct || current <= 0) return 0;
+  const raw = Math.round(current * pct);
+  return raw !== 0 ? raw : Math.sign(pct);
+}
+
 function applyEffect(state: GameState, effect: Choice['effect']): void {
+  // 比例部分先按**改动前**的存量算好，否则绝对项扣完会改变比例项的基数
+  const pctDelta: Partial<Record<ResourceId, number>> = {};
+  for (const [res, pct] of Object.entries(effect.stockPct ?? {})) {
+    pctDelta[res as ResourceId] = byPercent(state.stock[res as ResourceId], pct);
+  }
+
   for (const [res, n] of Object.entries(effect.stock ?? {})) {
     state.stock[res as ResourceId] = Math.max(0, state.stock[res as ResourceId] + n);
   }
+  for (const [res, n] of Object.entries(pctDelta)) {
+    state.stock[res as ResourceId] = Math.max(0, state.stock[res as ResourceId] + n);
+  }
+
+  // 事件也会给资源，一样要夹上限
+  const wasted = clampToCap(state);
+  for (const res of Object.keys(wasted) as ResourceId[]) state.lastWasted[res] += wasted[res];
 
   for (const [id, n] of Object.entries(effect.tools ?? {})) {
     const key = id as keyof GameState['works']['tools'];
     state.works.tools[key] = Math.max(0, state.works.tools[key] + n);
   }
 
-  if (effect.people) {
-    state.party.people = Math.max(0, state.party.people + effect.people);
+  const peopleDelta = (effect.people ?? 0) + byPercent(state.party.people, effect.peoplePct ?? 0);
+
+  if (peopleDelta) {
+    state.party.people = Math.max(0, state.party.people + peopleDelta);
     // 人少了派工可能超编，和饿死减员走同一条收尾
     trimCrew(state);
     if (state.party.people <= 0) state.over = true;

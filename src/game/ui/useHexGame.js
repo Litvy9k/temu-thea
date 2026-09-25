@@ -16,6 +16,7 @@ import {
   breakCamp,
   chooseEvent,
   choiceAllowed,
+  stockCap,
   currentEvent,
   pendingCount,
   buildFacility,
@@ -352,6 +353,9 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
     campOpen,
     openCamp: () => setCampOpen(true),
     closeCamp: () => setCampOpen(false),
+
+    /** 每种资源的储量上限。顶到上限的产出会被倒掉 */
+    stockCap: stockCap(game),
 
     /** 队首那个待选事件，没有就是 null */
     event: currentEvent(game),

@@ -182,6 +182,16 @@
   white-space: nowrap;
 }
 
+/* 满仓：存量那一格变色，配合右边显示被倒掉的量 */
+.hexgame .hg-res__full {
+  color: var(--warn);
+}
+
+.hexgame .hg-res__cap {
+  color: var(--ink-dim);
+  font-weight: 400;
+}
+
 .hexgame .hg-res__income {
   color: var(--ink-dim);
 }

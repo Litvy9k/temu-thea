@@ -26,7 +26,10 @@ export interface Facility {
 export const FACILITIES: Record<FacilityId, Facility> = {
   store: {
     label: { en: 'Store', zh: '仓库' },
-    desc: { en: 'Food upkeep −1 per turn', zh: '每回合食物消耗 −1' },
+    desc: {
+      en: 'Storage +40 · food upkeep −1 per turn',
+      zh: '储量上限 +40 · 每回合食物消耗 −1',
+    },
     cost: { wood: 12, stone: 6 },
   },
   workshop: {

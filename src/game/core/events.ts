@@ -102,8 +102,21 @@ export function chanceOf(snap: Snapshot, trigger: Rule[]): number {
  * 不用再手写一遍文案（手写的那份迟早和数值对不上）。
  */
 export interface Effect {
+  /** 绝对增减 */
   stock?: Partial<Record<ResourceId, number>>;
+  /**
+   * 按**当前存量**的比例增减，-0.3 = 扣掉三成。
+   *
+   * 有些损失本来就该按比例：存粮霉变是霉掉一部分，不是固定霉掉十份。
+   * 固定数值在经济规模涨上去之后会变成噪声。比例写法在任何规模下都保持
+   * 同样的分量 —— 加了储量上限之后绝对数值也不再失效，两种写法各有用处。
+   *
+   * 和 stock 可以同时写，两者相加。
+   */
+  stockPct?: Partial<Record<ResourceId, number>>;
   people?: number;
+  /** 同理的人口比例增减。敌人、瘟疫这类会用到 */
+  peoplePct?: number;
   tools?: Partial<Record<ToolId, number>>;
 }
 
@@ -184,11 +197,12 @@ export const EVENTS: GameEvent[] = [
       {
         label: { en: 'Dry it over the fire', zh: '生火烘干' },
         require: [{ metric: 'wood', op: '>=', value: 6 }],
-        effect: { stock: { wood: -6, food: -2 } },
+        effect: { stock: { wood: -6 }, stockPct: { food: -0.08 } },
       },
       {
         label: { en: 'Throw out the bad sacks', zh: '扔掉坏的' },
-        effect: { stock: { food: -10 } },
+        // 霉变按比例：存得越多烂得越多
+        effect: { stockPct: { food: -0.3 } },
       },
     ],
   },

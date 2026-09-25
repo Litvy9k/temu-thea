@@ -53,8 +53,10 @@ export default function DesktopLayout(g) {
             <Resource
               id={id}
               stock={game.stock[id]}
+              cap={g.stockCap}
               income={game.lastIncome[id]}
               short={game.lastShortage[id] ?? 0}
+              wasted={game.lastWasted[id] ?? 0}
               lang={lang}
             />
           </div>

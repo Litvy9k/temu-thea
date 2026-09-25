@@ -147,6 +147,13 @@ check what the browser actually received (fetch the module path and read the
 transform); a hard reload is not always enough, because the cache lives on the
 server — restarting the dev server is.
 
+## Storage
+
+Every resource is capped (40, plus 40 more with a store built). Surplus past the
+cap is thrown away and the HUD shows how much, so a full barrel reads as a prompt
+to spend, relocate or expand rather than as a bug. Uncapped, wood reached 1474 by
+turn 80 and no sink could compete with a number that size.
+
 ## Events
 
 `src/game/core/events.ts` is a plain table. Each event has trigger rules, a

@@ -53,6 +53,8 @@ export default function Game({ lang = 'zh', seed, initialState = null, stateRef 
         <EventDialog
           event={g.event}
           remaining={g.eventQueue}
+          stock={g.game.stock}
+          people={g.game.party.people}
           lang={lang}
           allowed={g.choiceAllowed}
           onChoose={g.choose}
