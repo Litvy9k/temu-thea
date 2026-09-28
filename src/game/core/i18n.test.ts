@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { STRINGS } from '../i18n.js';
 import { RESOURCES, TERRAIN } from './terrain.ts';
 import { FACILITIES, TOOLS } from './works.ts';
+import { DEPOSITS } from './deposits.ts';
 import { EVENTS } from './events.ts';
 import { SAVE_VERSION, parseSave } from './save.ts';
 
@@ -45,9 +46,10 @@ test('i18n.js 里每一条都有中英文', () => {
   for (const [pair, where] of found) checkPair(pair, where);
 });
 
-test('资源、地形、设施、工具的名字都有中英文', () => {
+test('资源、地形、矿脉、设施、工具的名字都有中英文', () => {
   for (const [id, r] of Object.entries(RESOURCES)) checkPair(r.label, `RESOURCES.${id}`);
   for (const [id, t] of Object.entries(TERRAIN)) checkPair(t.label, `TERRAIN.${id}`);
+  for (const [id, d] of Object.entries(DEPOSITS)) checkPair(d.label, `DEPOSITS.${id}`);
   for (const [id, f] of Object.entries(FACILITIES)) {
     checkPair(f.label, `FACILITIES.${id} 的名字`);
     checkPair(f.desc, `FACILITIES.${id} 的说明`);

@@ -10,6 +10,7 @@
 import { type Axial, axialToPixel, corners, key, offsetToAxial } from '../core/hex.ts';
 import { tileAt } from '../core/map.ts';
 import { TERRAIN, type TerrainId } from '../core/terrain.ts';
+import { DEPOSITS, yieldsOf } from '../core/deposits.ts';
 import {
   HARVEST_GOAL,
   MAX_CREW_PER_TILE,
@@ -80,6 +81,8 @@ export function drawScene(
   const lit = new Map<TerrainId, Path2D>();
   const dim = new Map<TerrainId, Path2D>();
   const glyphs: { x: number; y: number; ch: string; ink: string; dim: boolean }[] = [];
+  // 矿脉标记单独收一笔：字号和位置都和地形符号不同，混在一起要每个字改一次 font
+  const marks: { x: number; y: number; ch: string; ink: string; dim: boolean }[] = [];
 
   for (let row = rowMin; row <= rowMax; row += 1) {
     for (let col = colMin; col <= colMax; col += 1) {
@@ -99,6 +102,18 @@ export function drawScene(
       if (s >= 13) {
         const t = TERRAIN[tile.terrain];
         glyphs.push({ x: p.x, y: p.y, ch: t.glyph, ink: t.ink, dim: !tile.visible });
+      }
+      // 矿脉比地形要紧，但也更小 —— 缩得太小时两个符号会叠成一团墨，
+      // 所以它的阈值反而高一点。摆在右上角，不压住地形符号
+      if (s >= 17 && tile.deposit) {
+        const d = DEPOSITS[tile.deposit];
+        marks.push({
+          x: p.x + s * 0.40,
+          y: p.y - s * 0.42,
+          ch: d.glyph,
+          ink: d.ink,
+          dim: !tile.visible,
+        });
       }
     }
   }
@@ -129,6 +144,18 @@ export function drawScene(
       ctx.globalAlpha = g.dim ? 0.35 : 1;
       ctx.fillStyle = g.ink;
       ctx.fillText(g.ch, g.x, g.y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  if (marks.length) {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${Math.round(s * 0.46)}px ${MONO}`;
+    for (const m of marks) {
+      ctx.globalAlpha = m.dim ? 0.45 : 1;
+      ctx.fillStyle = m.ink;
+      ctx.fillText(m.ch, m.x, m.y);
     }
     ctx.globalAlpha = 1;
   }
@@ -308,17 +335,22 @@ export function describeHex(state: GameState, h: Axial | null, lang: 'en' | 'zh'
   if (!tile || !tile.explored) return null;
 
   const t = TERRAIN[tile.terrain];
+  const yields = yieldsOf(tile.terrain, tile.deposit);
 
   return {
     name: t.label[lang],
+    // 矿脉单列一行而不是拼进地名："丘陵（铁矿脉）"在窄面板上会折行，
+    // 而且它和地形不是同一类信息 —— 地形永远在，矿脉是这一块地特有的
+    deposit: tile.deposit ? DEPOSITS[tile.deposit].label[lang] : null,
+    depositGlyph: tile.deposit ? DEPOSITS[tile.deposit].glyph : null,
     moveCost: t.moveCost,
-    yields: t.yields,
+    yields,
     coord: key(h),
     progress: tile.progress,
     goal: HARVEST_GOAL,
     crew: crewAt(state, h),
     crewMax: MAX_CREW_PER_TILE,
-    workable: Object.keys(t.yields).length > 0,
+    workable: Object.keys(yields).length > 0,
     /** 采集速度的明细，面板直接显示"总量（工具 +N）" */
     rate: workRateAt(state, h),
   };

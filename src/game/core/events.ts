@@ -34,7 +34,17 @@ export interface Bilingual {
  * 多一种条件形状就要多一套判定、校验和测试，而收益只是少写几个字。
  * 表里用下面的 CAMPED / ROAMING 常量，读起来照样是人话。
  */
-export type Metric = 'turn' | 'people' | 'idle' | 'food' | 'wood' | 'stone' | 'camped';
+export type Metric =
+  | 'turn'
+  | 'people'
+  | 'idle'
+  | 'camped'
+  | 'food'
+  | 'wood'
+  | 'stone'
+  | 'clay'
+  | 'hide'
+  | 'iron';
 
 export type Op = '>' | '>=' | '<' | '<=' | '==';
 

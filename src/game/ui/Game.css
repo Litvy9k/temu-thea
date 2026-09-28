@@ -174,6 +174,14 @@
   color: var(--accent);
 }
 
+/*
+ * 矿脉那一行。不用 --ink-dim：地形、移动力、产出都是看一眼就能从地图
+ * 推出来的信息，而“这一块地下面有铁”不是 —— 它是选址时真正要看的那一行。
+ */
+.hexgame .hg-vein {
+  color: var(--accent);
+}
+
 /* 资源：名字 + 存量 + 上回合收支 */
 .hexgame .hg-res {
   display: inline-flex;

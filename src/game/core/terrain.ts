@@ -7,13 +7,24 @@
  * 折算下来单人产出 = yields / 2。定数值时按这个折算，别照着字面数字估。
  */
 
-export type ResourceId = 'food' | 'wood' | 'stone';
+export type ResourceId = 'food' | 'wood' | 'stone' | 'clay' | 'hide' | 'iron';
 
+/**
+ * 前三种地形直接产，后三种只从矿脉里出（见 deposits.ts）。
+ * 两者在规则上没有区别：都是采到手就能花的东西，没有加工这一层。
+ *
+ * 顺序就是 HUD 里的显示顺序：生存资源在前，升级资源在后。
+ */
 export const RESOURCES: Record<ResourceId, { label: { en: string; zh: string }; glyph: string }> = {
   food: { label: { en: 'Food', zh: '食物' }, glyph: '✦' },
   wood: { label: { en: 'Wood', zh: '木材' }, glyph: '❙' },
   stone: { label: { en: 'Stone', zh: '石料' }, glyph: '◆' },
+  clay: { label: { en: 'Clay', zh: '黏土' }, glyph: '▰' },
+  hide: { label: { en: 'Hide', zh: '兽皮' }, glyph: '◗' },
+  iron: { label: { en: 'Iron', zh: '铁' }, glyph: '◈' },
 };
+
+export const RESOURCE_IDS = Object.keys(RESOURCES) as ResourceId[];
 
 export type TerrainId =
   | 'ocean'
@@ -150,7 +161,16 @@ export function isWorkable(id: TerrainId): boolean {
  * 哪把工具吃得上就自然定下来了，不用另写一张对照表。
  */
 export function primaryYields(id: TerrainId): ResourceId[] {
-  const entries = Object.entries(TERRAIN[id].yields) as [ResourceId, number][];
+  return primaryOf(TERRAIN[id].yields);
+}
+
+/**
+ * 同上，但直接吃一张产出表。带矿脉的地格要把矿产算进去，
+ * 而矿脉是地格的属性不是地形的，所以判定不能只看 TerrainId。
+ * 实际调用走 deposits.ts 的 yieldsOf() 拿到合并后的表再传进来。
+ */
+export function primaryOf(yields: Partial<Record<ResourceId, number>>): ResourceId[] {
+  const entries = Object.entries(yields) as [ResourceId, number][];
   if (!entries.length) return [];
 
   const best = Math.max(...entries.map(([, n]) => n));

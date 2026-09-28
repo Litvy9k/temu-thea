@@ -20,6 +20,7 @@ import {
   type GameState,
 } from './state.ts';
 import { TERRAIN } from './terrain.ts';
+import { DEPOSITS, type DepositId } from './deposits.ts';
 import { tileAt } from './map.ts';
 
 /** 玩出一个有内容的局面：营地、派工、设施、工具、走过的进度 */
@@ -89,6 +90,43 @@ test('所有地形都有编码 —— 加了新地形忘了登记会在这里被
 
   const back = parseSave(serialize(g));
   ids.forEach((id, i) => assert.equal(back.map.tiles[i].terrain, id, `${id} 没编码对`));
+});
+
+test('所有矿脉都有编码 —— 加了新矿脉忘了登记会在这里被拦下', () => {
+  const g = createGame({ seed: 'thea' });
+  const ids = Object.keys(DEPOSITS) as DepositId[];
+  ids.forEach((id, i) => {
+    g.map.tiles[i].deposit = id;
+  });
+  // 再留一格空的：'.' 那条分支占绝大多数格子，反而最容易漏测
+  g.map.tiles[ids.length].deposit = null;
+
+  const back = parseSave(serialize(g));
+  ids.forEach((id, i) => assert.equal(back.map.tiles[i].deposit, id, `${id} 没编码对`));
+  assert.equal(back.map.tiles[ids.length].deposit, null);
+});
+
+test('没有矿脉列的老存档还读得回来', () => {
+  /*
+   * 矿脉、origin、三种新资源都是后加的字段。加字段并给了安全默认值
+   * **不该提 v** —— 提了就等于把读得回来的存档全部作废。
+   * 这里手工把新字段拆掉，模拟一份上个版本存的档。
+   */
+  const g = played();
+  const file = JSON.parse(serialize(g));
+  delete file.map.deposit;
+  delete file.map.origin;
+  delete file.seenResources;
+  file.stock = { food: file.stock.food, wood: file.stock.wood, stone: file.stock.stone };
+  file.works.tools = { axe: file.works.tools.axe, hoe: file.works.tools.hoe };
+
+  const back = parseSave(JSON.stringify(file));
+  assert.ok(back.map.tiles.every((t) => t.deposit === null), '凭空造出了矿脉');
+  assert.equal(back.stock.iron, 0, '缺的资源没补成 0');
+  assert.equal(back.works.tools.pick, 0, '缺的工具没补成 0');
+  // undefined 的工具数量不会报错，只会让 left[t] > 0 永远为假，工具静静失效
+  assert.ok(Number.isFinite(back.works.tools.ironAxe));
+  assert.deepEqual(back.seenResources.slice(0, 3), ['food', 'wood', 'stone']);
 });
 
 test('存档比整份 stringify 小一个量级', () => {

@@ -4,12 +4,18 @@
  * 这些只管"怎么显示一个数"，不知道自己被摆在浮动面板里还是底部抽屉里 ——
  * 摆放交给各自的布局，靠外层 class 控制。
  */
-import { RESOURCES } from '../core/terrain.ts';
+import { RESOURCES, RESOURCE_IDS } from '../core/terrain.ts';
 import { HARVEST_GOAL } from '../core/state.ts';
 import { TOOLS } from '../core/works.ts';
 import { t } from './../i18n.js';
 
-export const RESOURCE_ORDER = ['food', 'wood', 'stone'];
+/**
+ * HUD 里的资源顺序，就是 RESOURCES 表的顺序——生存资源在前，升级资源在后。
+ *
+ * 但 HUD 不是把它全列出来：六行在手机竖屏上放不下，而且没找到铁矿之前
+ * 那一行永远是 0。布局只画 game.seenResources 里的那几种（见 state.ts）。
+ */
+export const RESOURCE_ORDER = RESOURCE_IDS;
 
 /** 一种资源的存量和上回合收支 */
 export function Resource({ id, stock, cap, income, short, wasted, lang }) {
@@ -124,6 +130,13 @@ export function TileFacts({ detail, camped, lang }) {
             : `${t(lang, 'cost')} ${detail.moveCost}`}
         </span>
       </div>
+
+      {/* 矿脉单列一行，而且不压暗：它是这一格上唯一不能从地形推出来的信息 */}
+      {detail.deposit && (
+        <div className="hg-vein">
+          {detail.depositGlyph} {detail.deposit}
+        </div>
+      )}
 
       {detail.workable && (
         <div className="hg-dim">

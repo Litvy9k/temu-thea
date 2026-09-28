@@ -356,6 +356,8 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
 
     /** 每种资源的储量上限。顶到上限的产出会被倒掉 */
     stockCap: stockCap(game),
+    /** HUD 该列哪几种资源。玩家拿到过的才上，上了就不再下 */
+    seen: game.seenResources,
 
     /** 队首那个待选事件，没有就是 null */
     event: currentEvent(game),

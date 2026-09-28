@@ -40,6 +40,9 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   food: 10,
   wood: 10,
   stone: 0,
+  clay: 0,
+  hide: 0,
+  iron: 0,
   camped: 1,
   ...over,
 });

@@ -44,7 +44,7 @@ export default function MobileLayout(g) {
         </div>
 
         <div className="hg-m-status__line">
-          {RESOURCE_ORDER.map((id) => (
+          {RESOURCE_ORDER.filter((id) => g.seen.includes(id)).map((id) => (
             <Resource
               key={id}
               id={id}

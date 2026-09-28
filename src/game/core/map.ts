@@ -5,9 +5,18 @@
  * 数组的内存和访问都好一个量级，而外部只经 tileAt(map, 轴向) 存取，看不到
  * 偏移坐标的存在。
  */
-import { type Axial, axialToOffset, axialToPixel, neighbors, offsetToAxial } from './hex.ts';
+import {
+  type Axial,
+  axialToOffset,
+  axialToPixel,
+  distance,
+  neighbors,
+  offsetToAxial,
+  range,
+} from './hex.ts';
 import { mulberry32 } from './rng.ts';
-import type { TerrainId } from './terrain.ts';
+import { DEPOSITS, DEPOSIT_ORDER, type DepositId, densityAt } from './deposits.ts';
+import { TERRAIN, type TerrainId, isPassable } from './terrain.ts';
 
 export interface Tile {
   terrain: TerrainId;
@@ -20,12 +29,22 @@ export interface Tile {
    * 这让"以前采过一半的地方"成为地图上的一条真实信息。
    */
   progress: number;
+  /**
+   * 叠在地形上的矿脉，null 是绝大多数。它是**地格的属性而不是地形的**：
+   * 同样是山地，有矿的那一块才值得跑过去，而且得先探明才知道。
+   */
+  deposit: DepositId | null;
 }
 
 export interface GameMap {
   width: number;
   height: number;
   seed: number;
+  /**
+   * 出生点。存在地图上而不是队伍上 —— 队伍会走，而这个点是
+   * 矿脉密度梯度的圆心，属于世界本身，整局不变。
+   */
+  origin: Axial;
   tiles: Tile[];
 }
 
@@ -135,6 +154,8 @@ export interface MapOptions {
   scale?: number;
   /** 覆盖默认的水域占比 */
   water?: number;
+  /** 营地的作业半径。由 state.ts 传进来，否则这里要反向依赖规则层 */
+  campRadius?: number;
 }
 
 /** 取排好序的数组的第 p 分位。p 超出 0..1 会被夹住 */
@@ -214,11 +235,15 @@ export function generateMap(opts: MapOptions): GameMap {
       explored: false,
       visible: false,
       progress: 0,
+      deposit: null,
     };
   }
 
-  const map: GameMap = { width, height, seed, tiles };
+  // origin 先给个占位：选出生点要先知道浅滩在哪，而放矿脉又要先知道出生点
+  const map: GameMap = { width, height, seed, origin: { q: 0, r: 0 }, tiles };
   markShallows(map);
+  map.origin = findStart(map, opts.campRadius ?? 1);
+  placeDeposits(map);
   return map;
 }
 
@@ -264,4 +289,80 @@ function markShallows(map: GameMap): void {
     }
   }
   for (const i of coastal) map.tiles[i].terrain = 'shallow';
+}
+
+// ---------------------------------------------------------------- 出生点
+
+/**
+ * 开局位置：靠近地图中心、能站人、而且周围一圈同时有食物和木材 ——
+ * 缺任何一样都会在几回合内饿死或冻死，那不叫难度，那叫坑。
+ * 从中心一圈圈往外找，第一个及格的就用。
+ *
+ * 它在这里而不在 state.ts：矿脉密度是以出生点为圆心算的，所以出生点
+ * 必须在地图生成内部就定下来，不能等到建局的时候。
+ */
+export function findStart(map: GameMap, campRadius: number): Axial {
+  const center = hexOfIndex(map, Math.floor(map.tiles.length / 2) + Math.floor(map.width / 2));
+
+  let fallback: Axial | null = null;
+
+  for (let r = 0; r < Math.max(map.width, map.height); r += 1) {
+    for (const h of range(center, r)) {
+      if (distance(center, h) !== r) continue;
+      const tile = tileAt(map, h);
+      if (!tile || !isPassable(tile.terrain)) continue;
+
+      if (!fallback) fallback = h;
+
+      let food = 0;
+      let wood = 0;
+      for (const n of neighborsWithin(map, h, campRadius)) {
+        food += TERRAIN[n.terrain].yields.food ?? 0;
+        wood += TERRAIN[n.terrain].yields.wood ?? 0;
+      }
+      // 两格产粮 + 一片林子，够开局站住脚
+      if (food >= 8 && wood >= 5) return h;
+    }
+    if (fallback && r > 12) return fallback;
+  }
+  throw new Error('no landable start tile on this map');
+}
+
+function neighborsWithin(map: GameMap, h: Axial, radius: number): Tile[] {
+  const out: Tile[] = [];
+  for (const n of range(h, radius)) {
+    if (distance(h, n) === 0) continue;
+    const t = tileAt(map, n);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- 矿脉
+
+/**
+ * 撑矿脉。每一块地最多一处，按 DEPOSIT_ORDER 依次掉骰子，稀有的先占 ——
+ * 不这样的话在地形重叠的地方（兽道和黏土坑都能上草原），
+ * 常见的那种会把少见的挤掉。
+ *
+ * 用单独的随机流（种子异或过）：和地形共用一个的话，以后改一下矿脉参数
+ * 会把地形也推乱，同一个种子试不出对照。
+ */
+export function placeDeposits(map: GameMap): void {
+  const rand = mulberry32((map.seed ^ 0x5bf03635) >>> 0);
+
+  for (let i = 0; i < map.tiles.length; i += 1) {
+    const tile = map.tiles[i];
+    const dist = distance(map.origin, hexOfIndex(map, i));
+
+    for (const id of DEPOSIT_ORDER) {
+      const d = DEPOSITS[id];
+      if (!d.terrain.includes(tile.terrain)) continue;
+
+      // 每种都要抽一次，即使前面已经中了 —— 否则随机序列的消耗量会随
+      // 地形变化，改一个密度参数就把整张图的矿脉布局洗牌一遍
+      const hit = rand() < densityAt(d, dist);
+      if (hit && !tile.deposit) tile.deposit = id;
+    }
+  }
 }

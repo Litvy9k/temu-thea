@@ -18,7 +18,7 @@ its value — there is no language switch inside the game itself.
 npm install
 npm run dev        # dev server
 npm run build      # emits dist/ — three static files
-npm test           # 34 tests, no test framework (node:test)
+npm test           # 82 tests, no test framework (node:test)
 npm run typecheck  # tsc --noEmit
 ```
 
@@ -27,6 +27,7 @@ Two terminal tools for tuning numbers:
 ```
 npm run map -- thermopylae   # print a map as ASCII, for tuning terrain thresholds
 npm run sim -- thea 30    # run a greedy AI for 30 turns, print the resource ledger
+npm run veins             # deposit counts, first-sighting distance, density by band
 ```
 
 ## How it plays
@@ -49,7 +50,41 @@ decision.
 
 Tools are counted, one per person, and **handed out in deployment order**:
 with three axes, the first three people sent into the woods get the bonus, and
-their crew dots on the map are green.
+their crew dots on the map are green. Where several tools fit the same tile, the
+better one goes out first.
+
+## Deposits
+
+Three more resources — clay, hide and iron — do not come from terrain. They come
+from **deposits**: clay pits, game trails and iron veins, scattered on top of
+the terrain that suits them. Two mountains look alike until you have explored
+them; only one has the vein.
+
+Everything is usable the moment it is gathered. There is no raw-material layer
+to refine, so each resource simply owns one upgrade line:
+
+| | from | pays for |
+| --- | --- | --- |
+| Clay | marsh, shallows, grassland | clay jars — storage +40 |
+| Hide | forest, tundra, grassland | pack frames — moves +1 while roaming |
+| Iron | hills, mountains | iron axe / hoe / pick — double the tool bonus |
+
+**Deposits get denser the further you go from where you started.** Nothing at
+all spawns beside the camp you begin in; clay turns up within a few tiles, game
+trails take a short expedition, and iron is further still, getting commoner the
+whole way out. That gradient is the game's long arc — the party migrates
+outward, and since a party on the move produces nothing while it walks, the cost
+of reaching the good ground is paid in turns of pure upkeep. Hide comes in
+roughly where it is needed, because pack frames are what make the trip to the
+iron affordable.
+
+A deposit adds to the tile rather than replacing what is already there: an iron
+vein in the hills is stone 4 **plus** iron 3, and it stays a stone tile as far
+as tools are concerned. `npm run veins` prints how this actually falls out
+across seeds.
+
+A resource shows up in the HUD the first time you hold some of it, so the status
+strip starts at three rows and grows with the run.
 
 ## Layout
 
@@ -194,7 +229,8 @@ can drift out of sync.
 
 ## Not done yet
 
-- More resource types (the goal is that no single site yields everything,
-  which forces you to move)
+- Quests
+- Site evaluation while roaming — judging what a candidate camp is worth before
+  committing a turn to it, which deposits make necessary
 - More events, and effects beyond resources and headcount
 - Combat (none today, and not necessarily ever)

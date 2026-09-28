@@ -48,7 +48,7 @@ export default function DesktopLayout(g) {
 
         <div className="hg-sep" />
 
-        {RESOURCE_ORDER.map((id) => (
+        {RESOURCE_ORDER.filter((id) => g.seen.includes(id)).map((id) => (
           <div className="hg-row" key={id}>
             <Resource
               id={id}

@@ -17,6 +17,7 @@ src/game/            portable boundary: drops into any React project as-is
     hex.ts           hex math
     map.ts           map storage (odd-r flat array) and noise generation
     terrain.ts       terrain table
+    deposits.ts      deposit table and the distance gradient
     works.ts         facility and tool tables
     state.ts         state and rules
     save.ts          save serialisation
@@ -30,7 +31,8 @@ src/game/            portable boundary: drops into any React project as-is
     parts.jsx        display pieces shared by both layouts
     SaveControls     new game / save / load
 src/App.jsx          dev shell, thrown away on integration
-scripts/             dump-map.ts prints an ASCII map, sim.ts runs the economy ledger
+scripts/             dump-map.ts prints an ASCII map, sim.ts runs the economy
+                     ledger, veins.ts measures deposit density by distance
 ```
 
 ## Settled rules
@@ -82,6 +84,58 @@ move.
 (ties count as several). Matching on "does this tile produce the resource at all"
 is wrong: forest is `food 1 + wood 5`, so a food tool would attach to loggers.
 A tool follows what a patch of land is *for*, not its leftovers.
+
+**Deposits are a property of the tile, not of the terrain.** `deposits.ts`
+holds a second layer that sits on top of `terrain.ts`: terrain says what a
+patch of land *is*, a deposit says what happens to be *in* it. Same mountain,
+but only the one with an iron vein is worth the walk — and unlike terrain, you
+cannot tell from a distance, you have to explore it. `yieldsOf(terrain,
+deposit)` is the single source of a tile's output and **every reader must go
+through it**: turn resolution, the tile panel and tool matching each read it
+separately, and a path that misses it shows up only as "the panel says iron but
+the stock did not move". There is a test for exactly that.
+
+**A deposit's yield may tie the terrain's primary but never exceed it.** Tools
+attach to a tile's *primary* yield, so a deposit that outweighs the terrain
+silently changes what the land is "for" and detaches every tool from it. This
+is not hypothetical: clay was drafted at 4 while marsh is food 2 + wood 2, which
+took both the axe and the hoe off every marsh clay pit, with no symptom beyond
+"tools don't seem to work on that tile". The practical ceiling is the **lowest**
+primary among a deposit's allowed terrains — clay is capped by marsh (2), game
+trails by tundra (2), iron by hills (4). `deposits.test.ts` asserts it at the
+table level rather than per tile, so a new deposit is checked the moment it is
+added.
+
+**Deposits get denser the further you are from the spawn point, and the spawn
+point lives on the map.** `map.origin` is fixed at generation, before any
+deposit is placed, because it is the centre of the gradient — it belongs to the
+world, not to the party, which walks away from it. Each deposit has its own
+onset distance (`near`) and reaches full density at `far`; nothing at all spawns
+inside the camp working radius, or the whole outward arc would be skipped on
+turn one. This is the only thing in the game that makes the far map worth
+reaching, and with no combat the "danger" out there is purely logistical: a
+travelling party produces nothing while it walks.
+
+The numbers in that table are guesses; only `npm run veins` is evidence. It
+prints per-seed counts, the distance to the nearest of each kind, **and a
+density histogram by distance band** — the band table is the one that matters,
+because raw counts always rise outward simply because outer rings have more
+tiles. A first pass looked reasonable on counts and was nearly flat on density.
+One artefact worth knowing: iron thins out again past distance 30, because the
+map's radial falloff turns the outer rim into coast and lowland, so there are
+barely any hills left out there to put it in.
+
+**Resources appear in the HUD only once the player has held some**
+(`state.seenResources`, append-only). Six rows do not fit a phone in portrait,
+and a row reading 0 for the first twenty turns is noise. It is stored rather
+than derived from `stock > 0` because a derived row would vanish the moment the
+player spends the last of something and shove everything below it around.
+
+**Tool display order and tool handout order are two different lists.**
+`TOOL_ORDER` is the crafting menu, cheapest tier first; `TOOL_PRIORITY` is who
+gets what, best first, so the earliest-deployed person takes the iron axe. They
+were one list at first, which put an unmakeable iron axe at the top of the
+crafting page on turn one.
 
 This also makes adding resources self-resolving — a new terrain's primary yield
 decides which tools reach it, with no separate lookup table to maintain. The

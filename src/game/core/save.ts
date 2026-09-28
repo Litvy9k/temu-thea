@@ -11,8 +11,11 @@
  *            否则以后一动地形表或噪声参数，所有老存档的地图都会悄悄变样
  */
 import type { GameMap, Tile } from './map.ts';
-import { type GameState, type Stock, refreshVision } from './state.ts';
-import type { TerrainId } from './terrain.ts';
+import { type GameState, type Stock, fillStock, refreshVision } from './state.ts';
+import type { DepositId } from './deposits.ts';
+import { type ResourceId, RESOURCE_IDS, type TerrainId } from './terrain.ts';
+import { fillTools } from './works.ts';
+import type { Axial } from './hex.ts';
 
 export const SAVE_VERSION = 1;
 
@@ -57,6 +60,14 @@ const TERRAIN_CODES: readonly TerrainId[] = [
   'tundra',
 ];
 
+/**
+ * 矿脉的字符编码。和地形一样**只能往后追加**。
+ * '.' 不在表里，它表示"这格没有矿脉"，绝大多数格子都是它。
+ */
+const DEPOSIT_CODES: readonly DepositId[] = ['clay', 'game', 'iron'];
+
+const NO_DEPOSIT = '.';
+
 const FIRST_CODE = 65; // 'A'
 
 interface SavedMap {
@@ -68,6 +79,10 @@ interface SavedMap {
   terrain: string;
   /** 一格一个 0/1，行优先 */
   explored: string;
+  /** 一格一个字符的矿脉，'.' 是没有。后加的字段，老存档没有 */
+  deposit?: string;
+  /** 出生点。矿脉密度梯度的圆心，老存档没有，读回来拿队伍位置顶上 */
+  origin?: Axial;
   /** 下标 -> 采集进度。绝大多数格子是 0，所以存稀疏表 */
   progress: Record<string, number>;
 }
@@ -94,6 +109,8 @@ interface SaveFile {
    * 比如 TERRAIN_CODES 的顺序变了。
    */
   pendingEvents?: string[];
+  /** 后加：上过 HUD 的资源种类。老存档按实际库存推 */
+  seenResources?: ResourceId[];
   /** 旧存档里事件是单个不是队列，读档时并进 pendingEvents */
   pendingEvent?: string | null;
   seenEvents?: string[];
@@ -107,6 +124,7 @@ export function serialize(state: GameState): string {
   const { map } = state;
   let terrain = '';
   let explored = '';
+  let deposit = '';
   const progress: Record<string, number> = {};
 
   for (let i = 0; i < map.tiles.length; i += 1) {
@@ -117,6 +135,14 @@ export function serialize(state: GameState): string {
     terrain += String.fromCharCode(FIRST_CODE + code);
     explored += tile.explored ? '1' : '0';
     if (tile.progress) progress[i] = tile.progress;
+
+    if (!tile.deposit) {
+      deposit += NO_DEPOSIT;
+    } else {
+      const dc = DEPOSIT_CODES.indexOf(tile.deposit);
+      if (dc < 0) throw new Error(`deposit "${tile.deposit}" has no code; add it to DEPOSIT_CODES`);
+      deposit += String.fromCharCode(FIRST_CODE + dc);
+    }
   }
 
   const file: SaveFile = {
@@ -134,13 +160,16 @@ export function serialize(state: GameState): string {
     over: state.over,
     pendingEvents: state.pendingEvents,
     seenEvents: state.seenEvents,
+    seenResources: state.seenResources,
     rngState: state.rngState,
     map: {
       width: map.width,
       height: map.height,
       seed: map.seed,
+      origin: map.origin,
       terrain,
       explored,
+      deposit,
       progress,
     },
   };
@@ -212,16 +241,39 @@ export function parseSave(text: string): GameState {
       );
     }
 
+    // 老存档没有这一列，整张图就是没矿脉 —— 能读回来，只是那局没有铁
+    const dchar = m.deposit?.[i];
+    const dep =
+      dchar == null || dchar === NO_DEPOSIT
+        ? null
+        : (DEPOSIT_CODES[dchar.charCodeAt(0) - FIRST_CODE] ?? null);
+
     tiles[i] = {
       terrain: id,
       explored: m.explored[i] === '1',
       // visible 不存，下面由 refreshVision 重算
       visible: false,
       progress: m.progress?.[i] ?? 0,
+      deposit: dep,
     };
   }
 
-  const map: GameMap = { width: m.width, height: m.height, seed: m.seed ?? 0, tiles };
+  if (m.deposit != null && m.deposit.length !== n) {
+    throw new SaveError(
+      { en: 'Deposit data length does not match the map', zh: '矿脉数据长度和地图对不上' },
+      `${m.deposit.length} / ${n}`,
+    );
+  }
+
+  const map: GameMap = {
+    width: m.width,
+    height: m.height,
+    seed: m.seed ?? 0,
+    // 老存档没存出生点。拿队伍当下的位置顶上 —— 反正那张图上一处矿脉也没有，
+    // origin 只在生成矿脉时起作用，填错了也不会改变任何已有的东西
+    origin: m.origin ?? file.party?.at ?? { q: 0, r: 0 },
+    tiles,
+  };
 
   if (!file.party || typeof file.party.people !== 'number') {
     throw new SaveError({ en: 'No party data in the save', zh: '存档里没有队伍数据' });
@@ -230,22 +282,30 @@ export function parseSave(text: string): GameState {
     throw new SaveError({ en: 'No works data in the save', zh: '存档里没有工事数据' });
   }
 
+  const stock = fillStock(file.stock);
+
   const state: GameState = {
     map,
     party: file.party,
     camp: file.camp ?? null,
-    works: file.works,
+    // 老存档的 tools 里只有斧和锄，缺的补 0 —— undefined 会让工具分配里的
+    // left[t] > 0 静静地永远为假，没有报错，只是工具不生效了
+    works: { facilities: file.works.facilities ?? [], tools: fillTools(file.works.tools) },
     turn: file.turn ?? 1,
-    stock: file.stock,
-    lastIncome: file.lastIncome ?? { food: 0, wood: 0, stone: 0 },
+    stock,
+    lastIncome: fillStock(file.lastIncome),
     lastShortage: file.lastShortage ?? { food: 0, wood: 0 },
-    lastWasted: file.lastWasted ?? { food: 0, wood: 0, stone: 0 },
+    lastWasted: fillStock(file.lastWasted),
     hardship: file.hardship ?? 0,
     over: Boolean(file.over),
     // 旧存档存的是单个 pendingEvent，包成队列 —— 加字段并给了安全默认值
     // 就不该提 v，提了等于把读得回来的存档全部作废
     pendingEvents: file.pendingEvents ?? (file.pendingEvent ? [file.pendingEvent] : []),
     seenEvents: file.seenEvents ?? [],
+    // 老存档按实际库存推，再把前三种兵底上 —— 开局就该看得见它们
+    seenResources:
+      file.seenResources ??
+      RESOURCE_IDS.filter((r) => ['food', 'wood', 'stone'].includes(r) || stock[r] > 0),
     // 旧存档没有随机数状态，按地图种子重新起一个 —— 和 createGame 同一条路
     rngState: file.rngState ?? ((map.seed ^ 0x2545f491) >>> 0),
     version: 0,

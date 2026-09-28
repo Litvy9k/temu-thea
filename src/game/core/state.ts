@@ -14,7 +14,8 @@
  * tile，每走一步整份复制不值当。代价是撤销要靠 snapshot() 显式存快照。
  */
 import { type Axial, distance, equals, key, parseKey, range, reachable, ring } from './hex.ts';
-import { type GameMap, generateMap, hexOfIndex, tileAt } from './map.ts';
+import { type GameMap, generateMap, tileAt } from './map.ts';
+import { type DepositId, yieldsOf } from './deposits.ts';
 import { seedFrom, step } from './rng.ts';
 import {
   EVENTS,
@@ -25,12 +26,20 @@ import {
   findEvent,
   meetsAll,
 } from './events.ts';
-import { type ResourceId, TERRAIN, isPassable, isWorkable, primaryYields } from './terrain.ts';
+import {
+  RESOURCE_IDS,
+  type ResourceId,
+  TERRAIN,
+  type TerrainId,
+  isPassable,
+  primaryOf,
+} from './terrain.ts';
 import {
   FACILITIES,
   type FacilityId,
+  NO_TOOLS,
   TOOLS,
-  TOOL_ORDER,
+  TOOL_PRIORITY,
   type ToolId,
   canAfford,
   payCost,
@@ -40,8 +49,10 @@ import {
 export const CAMP_RADIUS = 1;
 /** 营地自带的视野 */
 export const CAMP_SIGHT = 2;
-/** 队伍每回合的行动力（只在游荡状态下有意义） */
+/** 队伍每回合的行动力（只在游荡状态下有意义）。背架会抬高它，走 partyMoves() */
 export const PARTY_MOVES = 4;
+/** 背架加多少行动力 */
+export const PACKS_MOVE_BONUS = 1;
 
 /** 采集进度条的满值 */
 export const HARVEST_GOAL = 40;
@@ -81,6 +92,8 @@ export const UPKEEP_WOOD_PER_TURN = 1;
 export const STOCK_BASE_CAP = 40;
 /** 仓库把上限抬高多少 */
 export const STORE_CAP_BONUS = 40;
+/** 储藏瓮把上限抬高多少。和仓库叠加 */
+export const JARS_CAP_BONUS = 40;
 
 export interface Party {
   at: Axial;
@@ -137,6 +150,14 @@ export interface GameState {
    * 是队列不是单个，因为一回合可以触发多个事件。
    */
   pendingEvents: string[];
+  /**
+   * 玩家拥有过的资源种类。HUD 只列这些 —— 六行资源在手机竖屏上放不下，
+   * 而没找到铁矿之前一直摆着一行 0 也只是噪音。
+   *
+   * 存下来而不是用 stock > 0 现算：现算的话花光铁那一行就消失，
+   * 下回采到又冒出来，HUD 行数会跳。
+   */
+  seenResources: ResourceId[];
   /** 已经触发过的 once 事件 */
   seenEvents: string[];
   /**
@@ -155,7 +176,14 @@ export interface Works {
   tools: Record<ToolId, number>;
 }
 
-const NO_STOCK: Stock = { food: 0, wood: 0, stone: 0 };
+const NO_STOCK: Stock = Object.freeze(
+  Object.fromEntries(RESOURCE_IDS.map((r) => [r, 0])),
+) as Stock;
+
+/** 把一份可能缺字段的库存补齐。老存档里只有前三种 */
+export function fillStock(partial: Partial<Stock> | undefined): Stock {
+  return { ...NO_STOCK, ...partial };
+}
 
 export interface NewGameOptions {
   width?: number;
@@ -167,15 +195,17 @@ export function createGame(opts: NewGameOptions = {}): GameState {
   const { width = 64, height = 44 } = opts;
   const seed =
     typeof opts.seed === 'string' ? seedFrom(opts.seed) : (opts.seed ?? Date.now() >>> 0);
-  const map = generateMap({ width, height, seed });
+  const map = generateMap({ width, height, seed, campRadius: CAMP_RADIUS });
 
   const state: GameState = {
     map,
-    party: { at: findStart(map), moves: PARTY_MOVES, people: START_PEOPLE },
+    party: { at: { ...map.origin }, moves: PARTY_MOVES, people: START_PEOPLE },
     camp: null,
-    works: { facilities: [], tools: { axe: 0, hoe: 0 } },
+    works: { facilities: [], tools: { ...NO_TOOLS } },
     turn: 1,
-    stock: { food: 12, wood: 12, stone: 0 },
+    stock: { ...NO_STOCK, food: 12, wood: 12 },
+    // 开局只显示这三种：剩下的要等玩家真的采到才上 HUD
+    seenResources: ['food', 'wood', 'stone'],
     lastIncome: { ...NO_STOCK },
     lastShortage: { food: 0, wood: 0 },
     lastWasted: { ...NO_STOCK },
@@ -190,40 +220,6 @@ export function createGame(opts: NewGameOptions = {}): GameState {
 
   refreshVision(state);
   return state;
-}
-
-/**
- * 开局位置：靠近地图中心、能站人、而且周围一圈同时有食物和木材 ——
- * 缺任何一样都会在几回合内饿死或冻死，那不叫难度，那叫坑。
- * 从中心一圈圈往外找，第一个及格的就用。
- */
-function findStart(map: GameMap): Axial {
-  const center = hexOfIndex(map, Math.floor(map.tiles.length / 2) + Math.floor(map.width / 2));
-
-  let fallback: Axial | null = null;
-
-  for (let r = 0; r < Math.max(map.width, map.height); r += 1) {
-    for (const h of range(center, r)) {
-      if (distance(center, h) !== r) continue;
-      const tile = tileAt(map, h);
-      if (!tile || !isPassable(tile.terrain)) continue;
-
-      if (!fallback) fallback = h;
-
-      let food = 0;
-      let wood = 0;
-      for (const n of ring(h, CAMP_RADIUS)) {
-        const t = tileAt(map, n);
-        if (!t) continue;
-        food += TERRAIN[t.terrain].yields.food ?? 0;
-        wood += TERRAIN[t.terrain].yields.wood ?? 0;
-      }
-      // 两格产粮 + 一片林子，够开局站住脚
-      if (food >= 8 && wood >= 5) return h;
-    }
-    if (fallback && r > 12) return fallback;
-  }
-  throw new Error('no landable start tile on this map');
 }
 
 // ---------------------------------------------------------------- 视野
@@ -330,12 +326,17 @@ export function breakCamp(state: GameState): boolean {
 
 // ---------------------------------------------------------------- 派工
 
+/** 一块地有没有东西可采。要把矿脉算进去 —— 光秃地形不产也可能底下有矿 */
+export function workable(tile: { terrain: TerrainId; deposit: DepositId | null }): boolean {
+  return Object.keys(yieldsOf(tile.terrain, tile.deposit)).length > 0;
+}
+
 /** 营地周围一圈里能派人干活的格子。浅滩和山地进不去但能采，所以看的是产出不是通行 */
 export function workableTiles(state: GameState): Axial[] {
   if (!state.camp) return [];
   return ring(state.camp.at, CAMP_RADIUS).filter((h) => {
     const tile = tileAt(state.map, h);
-    return tile != null && isWorkable(tile.terrain);
+    return tile != null && workable(tile);
   });
 }
 
@@ -362,7 +363,7 @@ export function assignBlocker(state: GameState, h: Axial): AssignBlocker {
   if (!state.camp || state.over) return 'noCamp';
 
   const tile = tileAt(state.map, h);
-  if (!tile || !isWorkable(tile.terrain)) return 'notWorkable';
+  if (!tile || !workable(tile)) return 'notWorkable';
   if (distance(state.camp.at, h) !== CAMP_RADIUS) return 'notWorkable';
 
   if (idleCount(state) <= 0) return 'noIdle';
@@ -437,9 +438,10 @@ export function toolAllocation(state: GameState): Map<string, { equipped: number
     const tile = tileAt(state.map, parseKey(k));
     if (!tile) continue;
 
-    // 只看主产资源：森林产 1 点食物，但它是木头地，骨锄在那儿不该算数
-    const primary = primaryYields(tile.terrain);
-    const id = TOOL_ORDER.find(
+    // 只看主产资源：森林产 1 点食物，但它是木头地，骨锄在那儿不该算数。
+    // 连矿脉一起算 —— 铁矿脉在丘陵上是石 4 + 铁 3，主产仍是石，铁镐吃得上
+    const primary = primaryOf(yieldsOf(tile.terrain, tile.deposit));
+    const id = TOOL_PRIORITY.find(
       (t) => left[t] > 0 && TOOLS[t].boosts.some((r) => primary.includes(r)),
     );
     if (!id) continue;
@@ -567,7 +569,7 @@ export function endTurn(state: GameState): void {
       tile.progress -= times * HARVEST_GOAL;
 
       if (times > 0) {
-        for (const [res, amount] of Object.entries(TERRAIN[tile.terrain].yields)) {
+        for (const [res, amount] of Object.entries(yieldsOf(tile.terrain, tile.deposit))) {
           income[res as ResourceId] += amount * times;
         }
       }
@@ -580,9 +582,7 @@ export function endTurn(state: GameState): void {
   income.food -= Math.max(0, state.party.people * UPKEEP_FOOD_PER_PERSON - stored);
   income.wood -= UPKEEP_WOOD_PER_TURN;
 
-  state.stock.food += income.food;
-  state.stock.wood += income.wood;
-  state.stock.stone += income.stone;
+  for (const res of RESOURCE_IDS) state.stock[res] += income[res];
 
   // 顶到上限的部分倒掉，但要记下来给 HUD 显示
   state.lastWasted = clampToCap(state);
@@ -609,8 +609,9 @@ export function endTurn(state: GameState): void {
   if (state.party.people <= 0) state.over = true;
 
   state.lastIncome = income;
-  state.party.moves = PARTY_MOVES;
+  state.party.moves = partyMoves(state);
   state.turn += 1;
+  noteResources(state);
 
   // 放在 turn += 1 之后：条件里写的 turn 指的是即将开始的那一回合
   rollEvent(state);
@@ -635,7 +636,22 @@ export function metrics(state: GameState): Snapshot {
     food: state.stock.food,
     wood: state.stock.wood,
     stone: state.stock.stone,
+    clay: state.stock.clay,
+    hide: state.stock.hide,
+    iron: state.stock.iron,
   };
+}
+
+/**
+ * 刚刚到手的新资源计进 HUD。只增不减 —— 花光了也要留着那一行，
+ * 否则行数会跟着库存跳，每次都把下面的东西顶得挪一下。
+ */
+function noteResources(state: GameState): void {
+  for (const res of RESOURCE_IDS) {
+    if (state.stock[res] > 0 && !state.seenResources.includes(res)) {
+      state.seenResources.push(res);
+    }
+  }
 }
 
 /**
@@ -706,7 +722,16 @@ export function chooseEvent(state: GameState, index: number): boolean {
  */
 /** 当前每种资源的储量上限。以后要按资源分别设，改这一处 */
 export function stockCap(state: GameState): number {
-  return STOCK_BASE_CAP + (hasFacility(state, 'store') ? STORE_CAP_BONUS : 0);
+  return (
+    STOCK_BASE_CAP +
+    (hasFacility(state, 'store') ? STORE_CAP_BONUS : 0) +
+    (hasFacility(state, 'jars') ? JARS_CAP_BONUS : 0)
+  );
+}
+
+/** 这一回合的行动力上限。背架把它抬高一点 —— 往外迁徙的唯一加速器 */
+export function partyMoves(state: GameState): number {
+  return PARTY_MOVES + (hasFacility(state, 'packs') ? PACKS_MOVE_BONUS : 0);
 }
 
 /**
