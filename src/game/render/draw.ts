@@ -81,8 +81,10 @@ export function drawScene(
   const lit = new Map<TerrainId, Path2D>();
   const dim = new Map<TerrainId, Path2D>();
   const glyphs: { x: number; y: number; ch: string; ink: string; dim: boolean }[] = [];
-  // 矿脉标记单独收一笔：字号和位置都和地形符号不同，混在一起要每个字改一次 font
-  const marks: { x: number; y: number; ch: string; ink: string; dim: boolean }[] = [];
+  // 矿脉符号画得比地形符号小，所以得单收一笔（换 font 是批量的）
+  const veinGlyphs: { x: number; y: number; ch: string; ink: string; dim: boolean }[] = [];
+  // 有矿脉的格子单收一笔，要在格线之后、符号之前描一圈内边
+  const veined: { p: { x: number; y: number }; ink: string; dim: boolean }[] = [];
 
   for (let row = rowMin; row <= rowMax; row += 1) {
     for (let col = colMin; col <= colMax; col += 1) {
@@ -99,21 +101,35 @@ export function drawScene(
       }
       addHex(path, p.x, p.y, shape);
 
+      /*
+       * 有矿脉的格子，中间画的是**矿脉符号而不是地形符号**。
+       *
+       * 一个格子上只有三条带：顶上是人力点（5 人时那条暗底横跨整个格宽），
+       * 底下是采集进度条，只有正中永远没人踩。最早把矿脉摆在右上角，
+       * 结果恰好被人力点的暗底盖住 —— 而且偏偏是派了人的格子才会挡。
+       *
+       * 换掉地形符号不丢信息：地形本来就由底色说了算，而矿脉是这一格上
+       * **只能靠这个符号知道**的东西。稀的那样该占位置好的那一块。
+       */
       if (s >= 13) {
         const t = TERRAIN[tile.terrain];
-        glyphs.push({ x: p.x, y: p.y, ch: t.glyph, ink: t.ink, dim: !tile.visible });
-      }
-      // 矿脉比地形要紧，但也更小 —— 缩得太小时两个符号会叠成一团墨，
-      // 所以它的阈值反而高一点。摆在右上角，不压住地形符号
-      if (s >= 17 && tile.deposit) {
-        const d = DEPOSITS[tile.deposit];
-        marks.push({
-          x: p.x + s * 0.40,
-          y: p.y - s * 0.42,
-          ch: d.glyph,
-          ink: d.ink,
+        const d = tile.deposit ? DEPOSITS[tile.deposit] : null;
+        // 矿脉符号替掉地形符号，但画得小：地形符号都是细笔画（· ♣ ∩），
+        // 矿脉符号是实心的，同尺寸会压成一块碍眼的色块。小一号、颜色亮，
+        // 再加外面那圈边，三样加起来已经足够跳出来了
+        (d ? veinGlyphs : glyphs).push({
+          x: p.x,
+          y: p.y,
+          ch: d ? d.glyph : t.glyph,
+          ink: d ? d.ink : t.ink,
           dim: !tile.visible,
         });
+      }
+
+      // 内边框比符号早一步出现：缩到看不见符号的尺度时，它是在大图上
+      // 一眼扫到矿脉的唯一办法 —— 找矿本来就是要先拉远了看
+      if (s >= 9 && tile.deposit) {
+        veined.push({ p, ink: DEPOSITS[tile.deposit].ink, dim: !tile.visible });
       }
     }
   }
@@ -136,6 +152,30 @@ export function drawScene(
     for (const bucket of [lit, dim]) for (const path of bucket.values()) ctx.stroke(path);
   }
 
+  // 矿脉的内边框。按颜色分批 —— 一张图上最多三种，每帧只切三次 strokeStyle
+  if (veined.length) {
+    const inner = corners(0, 0, s * VEIN_INSET);
+    const byInk = new Map<string, Path2D>();
+    for (const v of veined) {
+      // 压暗的和亮的分开放，否则要么整批打透明度要么都不打
+      const k = v.dim ? `${v.ink}|dim` : v.ink;
+      let path = byInk.get(k);
+      if (!path) {
+        path = new Path2D();
+        byInk.set(k, path);
+      }
+      addHex(path, v.p.x, v.p.y, inner);
+    }
+    ctx.lineWidth = Math.max(1, s * 0.055);
+    for (const [k, path] of byInk) {
+      const [ink, isDim] = k.split('|');
+      ctx.globalAlpha = isDim ? 0.3 : 0.75;
+      ctx.strokeStyle = ink;
+      ctx.stroke(path);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   if (glyphs.length) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -148,14 +188,14 @@ export function drawScene(
     ctx.globalAlpha = 1;
   }
 
-  if (marks.length) {
+  if (veinGlyphs.length) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `${Math.round(s * 0.46)}px ${MONO}`;
-    for (const m of marks) {
-      ctx.globalAlpha = m.dim ? 0.45 : 1;
-      ctx.fillStyle = m.ink;
-      ctx.fillText(m.ch, m.x, m.y);
+    ctx.font = `${Math.round(s * 0.5)}px ${MONO}`;
+    for (const g of veinGlyphs) {
+      ctx.globalAlpha = g.dim ? 0.4 : 1;
+      ctx.fillStyle = g.ink;
+      ctx.fillText(g.ch, g.x, g.y);
     }
     ctx.globalAlpha = 1;
   }
@@ -189,6 +229,14 @@ function outlineHex(
 }
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+/**
+ * 矿脉内边框缩进到格子的几成。
+ *
+ * 0.78 是量出来的：再大就和格线粘成一条，再小就撞上正中的符号。
+ * 人力点那条暗底会盖掉它上半部分的一截，但它是闭合图形，残的也认得出来。
+ */
+const VEIN_INSET = 0.78;
 
 function addHex(path: Path2D, cx: number, cy: number, shape: [number, number][]): void {
   path.moveTo(cx + shape[0][0], cy + shape[0][1]);

@@ -72,8 +72,9 @@ export const DEPOSITS: Record<DepositId, Deposit> = {
     near: 1,
     far: 20,
     density: 0.09,
-    glyph: '▰',
-    ink: '#b08a5a',
+    // 空心的：实心平行四边形在草绿底上是一块显眼的色块，和地形符号那种细笔画格格不入
+    glyph: '▱',
+    ink: '#d8b183',
   },
   game: {
     label: { en: 'Game trail', zh: '兽道' },

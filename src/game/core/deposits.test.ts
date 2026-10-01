@@ -15,7 +15,7 @@ import { generateMap, hexOfIndex, tileAt } from './map.ts';
 import { TERRAIN, primaryOf } from './terrain.ts';
 import { TOOLS, TOOL_ORDER, TOOL_PRIORITY } from './works.ts';
 import { seedFrom } from './rng.ts';
-import { CAMP_RADIUS, HARVEST_GOAL, createGame, endTurn } from './state.ts';
+import { CAMP_RADIUS, HARVEST_GOAL, createGame, endTurn, refreshVision } from './state.ts';
 
 const SEEDS = ['thea', 'nomad', 'ash', 'quarry', '冬岭'];
 
@@ -158,6 +158,25 @@ test('发工具时铁器排在石器前面', () => {
   const all = Object.keys(TOOLS).sort();
   assert.deepEqual([...TOOL_ORDER].sort(), all, 'TOOL_ORDER 漏了工具');
   assert.deepEqual([...TOOL_PRIORITY].sort(), all, 'TOOL_PRIORITY 漏了工具');
+});
+
+test('看见矿脉就把那种资源计进 HUD，不用等采到手', () => {
+  /*
+   * 发现铁矿那一刻 HUD 就该多出一行。不这样的话，玩家在地图上看到
+   * 一个陆生的符号，资源栏里却没有任何东西能对应得上。
+   */
+  const g = createGame({ seed: 'thea' });
+  assert.ok(!g.seenResources.includes('iron'), '开局就认得铁了？');
+
+  const idx = g.map.tiles.findIndex((t) => t.deposit === 'iron');
+  assert.ok(idx >= 0, '这张图上没有铁矿，测试前提不成立');
+
+  // 把队伍挪到矿脉上，重算视野
+  g.party.at = hexOfIndex(g.map, idx);
+  refreshVision(g);
+
+  assert.ok(g.seenResources.includes('iron'), '看见铁矿了，HUD 却还没把它列出来');
+  assert.equal(g.stock.iron, 0, '只是看见，不该白给资源');
 });
 
 test('派人到矿脉格上，结算时真的进库存', () => {

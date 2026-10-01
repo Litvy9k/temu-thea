@@ -15,7 +15,7 @@
  */
 import { type Axial, distance, equals, key, parseKey, range, reachable, ring } from './hex.ts';
 import { type GameMap, generateMap, tileAt } from './map.ts';
-import { type DepositId, yieldsOf } from './deposits.ts';
+import { DEPOSITS, type DepositId, yieldsOf } from './deposits.ts';
 import { seedFrom, step } from './rng.ts';
 import {
   EVENTS,
@@ -248,6 +248,9 @@ export function refreshVision(state: GameState): void {
       if (!tile) continue;
       tile.visible = true;
       tile.explored = true;
+      // 看见矿脉就算认识了这种资源，不用等采到手。
+      // 发现铁矿那一刻 HUD 就多出一行，玩家才知道地图上那个符号是什么
+      if (tile.deposit) noteResource(state, DEPOSITS[tile.deposit].res);
     }
   };
 
@@ -648,10 +651,17 @@ export function metrics(state: GameState): Snapshot {
  */
 function noteResources(state: GameState): void {
   for (const res of RESOURCE_IDS) {
-    if (state.stock[res] > 0 && !state.seenResources.includes(res)) {
-      state.seenResources.push(res);
-    }
+    if (state.stock[res] > 0) noteResource(state, res);
   }
+}
+
+/**
+ * 认识一种资源。只增不减，重复调用无害 —— 视野重算每回合都会把
+ * 视野里的矿脉再过一遍。这个数组里的顺序不重要：布局是拿
+ * RESOURCE_ORDER 去 filter 它，按表序画。
+ */
+function noteResource(state: GameState, res: ResourceId): void {
+  if (!state.seenResources.includes(res)) state.seenResources.push(res);
 }
 
 /**

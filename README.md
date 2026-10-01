@@ -18,7 +18,7 @@ its value — there is no language switch inside the game itself.
 npm install
 npm run dev        # dev server
 npm run build      # emits dist/ — three static files
-npm test           # 82 tests, no test framework (node:test)
+npm test           # 83 tests, no test framework (node:test)
 npm run typecheck  # tsc --noEmit
 ```
 
@@ -83,8 +83,14 @@ vein in the hills is stone 4 **plus** iron 3, and it stays a stone tile as far
 as tools are concerned. `npm run veins` prints how this actually falls out
 across seeds.
 
-A resource shows up in the HUD the first time you hold some of it, so the status
-strip starts at three rows and grows with the run.
+On the map a deposit tile shows its own symbol in the middle of the hex instead
+of the terrain symbol — terrain is already obvious from the colour — ringed in
+the resource's colour. The ring keeps drawing when you zoom out past the point
+where symbols disappear, so you can pull back and scan for veins.
+
+A resource shows up in the HUD the first time you hold some **or first lay eyes
+on a deposit of it**, so the status strip starts at three rows and grows with the
+run.
 
 ## Layout
 

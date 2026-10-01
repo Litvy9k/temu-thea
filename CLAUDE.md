@@ -125,11 +125,31 @@ One artefact worth knowing: iron thins out again past distance 30, because the
 map's radial falloff turns the outer rim into coast and lowland, so there are
 barely any hills left out there to put it in.
 
-**Resources appear in the HUD only once the player has held some**
-(`state.seenResources`, append-only). Six rows do not fit a phone in portrait,
-and a row reading 0 for the first twenty turns is noise. It is stored rather
-than derived from `stock > 0` because a derived row would vanish the moment the
+**Resources appear in the HUD once the player has held some *or seen a deposit
+of it*** (`state.seenResources`, append-only, fed by `refreshVision`). Six rows
+do not fit a phone in portrait, and a row reading 0 for the first twenty turns
+is noise. Discovery rather than acquisition is the trigger because spotting an
+iron vein is the moment the player needs the legend: otherwise there is a symbol
+on the map with nothing in the HUD that corresponds to it. It is stored rather
+than derived from `stock > 0`, because a derived row would vanish the moment the
 player spends the last of something and shove everything below it around.
+
+**A deposit tile draws the deposit glyph in the centre, not the terrain glyph,
+plus an inset ring in the deposit's colour.** A hex has exactly three bands and
+two of them are taken: crew dots sit at `y = -0.5s` (and at five crew that dark
+pad spans the full width of the tile), the progress bar at `y = +0.42s`. **Only
+the centre is never drawn over.** The first version put the deposit in the top
+right corner, where the crew pad covered it — and covered it precisely on the
+tiles the player had assigned people to. Replacing the terrain glyph loses
+nothing, because terrain is already carried by the fill colour, while a deposit
+can be known *only* from this symbol.
+
+The ring exists for a different job: it starts drawing at `s >= 9`, below the
+glyph threshold, so veins are still findable when the map is zoomed out to scan
+for them. Deposit glyphs also draw smaller than terrain glyphs (`0.5s` vs
+`0.8s`) and prefer outline forms — terrain symbols are hairline (`·` `♣` `∩`)
+and a solid shape at the same size reads as a colour block rather than a mark.
+Clay was `▰` and had to become `▱` for exactly that reason.
 
 **Tool display order and tool handout order are two different lists.**
 `TOOL_ORDER` is the crafting menu, cheapest tier first; `TOOL_PRIORITY` is who
