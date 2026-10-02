@@ -17,6 +17,7 @@ import {
 import { mulberry32 } from './rng.ts';
 import { DEPOSITS, DEPOSIT_ORDER, type DepositId, densityAt } from './deposits.ts';
 import { TERRAIN, type TerrainId, isPassable } from './terrain.ts';
+import type { BuildingId } from './works.ts';
 
 export interface Tile {
   terrain: TerrainId;
@@ -43,10 +44,28 @@ export interface Tile {
   surveyed: boolean;
 }
 
+/**
+ * 营地址：地图上某一格，以及建在那里的建筑。
+ *
+ * 它属于**地图**，不属于营地：拔营时 state.camp 置空，营地址原样留在这里，
+ * 回来在同一格扎营就重新接上 —— 营地和营地址之间靠位置相认，不存指针，
+ * 所以也就没有指针会过期。
+ *
+ * 只有造过建筑的地方才是营地址。建筑全拆光、或者太久没人来，它就消失。
+ */
+export interface Site {
+  at: Axial;
+  buildings: BuildingId[];
+  /** 最近一次在这里扎营的回合。只有扎营才算来过，路过不算 */
+  lastVisit: number;
+}
+
 export interface GameMap {
   width: number;
   height: number;
   seed: number;
+  /** 营地址。一局最多几处，见 state.ts 的 MAX_SITES */
+  sites: Site[];
   /**
    * 出生点。存在地图上而不是队伍上 —— 队伍会走，而这个点是
    * 矿脉密度梯度的圆心，属于世界本身，整局不变。
@@ -248,7 +267,7 @@ export function generateMap(opts: MapOptions): GameMap {
   }
 
   // origin 先给个占位：选出生点要先知道浅滩在哪，而放矿脉又要先知道出生点
-  const map: GameMap = { width, height, seed, origin: { q: 0, r: 0 }, tiles };
+  const map: GameMap = { width, height, seed, sites: [], origin: { q: 0, r: 0 }, tiles };
   markShallows(map);
   map.origin = findStart(map, opts.campRadius ?? 1);
   placeDeposits(map);

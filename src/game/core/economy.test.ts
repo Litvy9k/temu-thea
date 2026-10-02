@@ -12,7 +12,7 @@ import {
   STOCK_BASE_CAP,
   STORE_CAP_BONUS,
   assign,
-  buildFacility,
+  buildBuilding,
   chooseEvent,
   createGame,
   currentEvent,
@@ -36,7 +36,7 @@ test('没有仓库时上限是基础值，建了仓库抬高', () => {
 
   g.stock.wood = 999;
   g.stock.stone = 999;
-  buildFacility(g, 'store');
+  buildBuilding(g, 'store');
   assert.equal(stockCap(g), STOCK_BASE_CAP + STORE_CAP_BONUS);
 });
 

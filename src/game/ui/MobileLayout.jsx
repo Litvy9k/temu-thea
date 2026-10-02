@@ -9,9 +9,9 @@
  *   - 操作按钮固定在最底下。单手握持时拇指够得到的只有屏幕下缘。
  *   - 消耗明细、快捷键提示这些不显示。横向空间要留给真正每回合都要看的数。
  */
-import { Actions, CrewStepper, Resource, RESOURCE_ORDER, TileFacts } from './parts.jsx';
-import { PARTY_MOVES } from '../core/state.ts';
+import { Actions, CrewStepper, Resource, RESOURCE_ORDER, SeasonBadge, TileFacts } from './parts.jsx';
 import { t } from '../i18n.js';
+import { Notices } from './Overlays.jsx';
 import './MobileLayout.css';
 
 export default function MobileLayout(g) {
@@ -28,7 +28,7 @@ export default function MobileLayout(g) {
           <b>
             {camped
               ? `${game.party.people - idle} / ${game.party.people}`
-              : `${game.party.moves} / ${PARTY_MOVES}`}
+              : `${game.party.moves} / ${g.maxMoves}`}
           </b>
 
           {camped && idle > 0 && (
@@ -41,6 +41,11 @@ export default function MobileLayout(g) {
               {t(lang, 'shortage')} {game.hardship}
             </span>
           )}
+
+          {/* 第一行右侧本来就空着，季节放这里不挤资源那一行 */}
+          <span className="hg-m-season">
+            <SeasonBadge season={g.season} lang={lang} />
+          </span>
         </div>
 
         <div className="hg-m-status__line">
@@ -57,6 +62,13 @@ export default function MobileLayout(g) {
             />
           ))}
         </div>
+
+        {/*
+         * 提示条挂在状态条里面、贴着它的底边往下排。状态条的高度会随资源
+         * 行数变，写死一个 top 值迟早会压在它上面 —— 最早就写的是 84px，
+         * 而状态条实测有 105px 高。
+         */}
+        <Notices notices={g.notices} lang={lang} />
       </div>
 
       <div className="hg-m-dock">

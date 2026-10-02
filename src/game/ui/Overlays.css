@@ -1,0 +1,87 @@
+/*
+ * 确认框借用事件弹窗的外框（.hg-event / .hg-event__box），这里只补按钮那一排。
+ */
+.hg-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: calc(8 * var(--u));
+}
+
+.hg-confirm__actions button {
+  min-height: var(--tap);
+}
+
+/* 确认的那个按钮用警示色：它做的事情撤销不了 */
+.hexgame .hg-confirm__yes {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/*
+ * 提示条：地图正上方居中，一条一行。
+ *
+ * pointer-events: none —— 它绝不能挡住对地图的点击，换季那一回合玩家照样
+ * 要派人、要走路。z-index 不超过 2，是和宿主站点约好的（见 CLAUDE.md）。
+ */
+.hg-notices {
+  position: absolute;
+  top: calc(12 * var(--u));
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(6 * var(--u));
+  width: max-content;
+  max-width: calc(100% - 32px);
+  pointer-events: none;
+}
+
+/* 手机上它挂在状态条里，从状态条底边往下排 —— 状态条多高都压不到 */
+.hg-m-status .hg-notices {
+  top: calc(100% + 8 * var(--u));
+}
+
+.hg-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(2 * var(--u));
+  padding: calc(8 * var(--u)) calc(12 * var(--u));
+  text-align: center;
+  background: #05090b;
+  border: var(--line-w, 1px) solid var(--line);
+  animation: hg-notice-life 4.5s ease forwards;
+}
+
+.hg-notice__title {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6 * var(--u));
+  font-weight: 600;
+  color: var(--season);
+}
+
+.hg-notice--warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/* 淡入、停留、淡出；和 useHexGame 里的 NOTICE_MS 对得上，淡完正好被移除 */
+@keyframes hg-notice-life {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  8% {
+    opacity: 1;
+    transform: none;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

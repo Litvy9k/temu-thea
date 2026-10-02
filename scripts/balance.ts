@@ -20,20 +20,27 @@ import { distance, key, reachable } from '../src/game/core/hex.ts';
 import { tileAt } from '../src/game/core/map.ts';
 import { TERRAIN, type ResourceId, type TerrainId, primaryYields } from '../src/game/core/terrain.ts';
 import { DEPOSITS } from '../src/game/core/deposits.ts';
-import { FACILITIES, TOOLS, type Cost, type FacilityId, type ToolId } from '../src/game/core/works.ts';
+import {
+  BUILDINGS,
+  GEAR,
+  TOOLS,
+  type BuildingId,
+  type Cost,
+  type GearId,
+  type ToolId,
+} from '../src/game/core/works.ts';
 import { EVENTS } from '../src/game/core/events.ts';
 import {
   HARVEST_GOAL,
   PACKS_MOVE_BONUS,
   PARTY_MOVES,
   STOCK_BASE_CAP,
-  STORE_CAP_BONUS,
   JARS_CAP_BONUS,
   UPKEEP_FOOD_PER_PERSON,
   UPKEEP_WOOD_PER_TURN,
   WORK_PER_PERSON,
   type GameState,
-  buildFacility,
+  buildBuilding,
   choiceAllowed,
   chooseEvent,
   craftTool,
@@ -41,7 +48,9 @@ import {
   crewAt,
   currentEvent,
   endTurn,
-  hasFacility,
+  foodUpkeep,
+  hasBuilding,
+  woodUpkeep,
   idleCount,
   makeCamp,
   stepCost,
@@ -149,24 +158,30 @@ if (section(2, '投资回收期')) {
    * 每回合收益，也折成人·回合。工具按"装在主产对口的那个人手上"算：
    * 石器多推 10 点 = 多 0.25 次结算，铁器多 0.5 次。
    */
-  const gain: Partial<Record<ToolId | FacilityId, { wt: number; note: string }>> = {
+  type Id = ToolId | BuildingId | GearId;
+  const gain: Partial<Record<Id, { wt: number; note: string }>> = {
     hoe: { wt: (perWorker('grass', 10).food! - perWorker('grass').food!) * PRICE.food, note: '草原农夫 +1 食' },
     axe: { wt: (perWorker('forest', 10).wood! - perWorker('forest').wood!) * PRICE.wood, note: '森林樵夫 +1.25 木' },
     ironHoe: { wt: (perWorker('grass', 20).food! - perWorker('grass').food!) * PRICE.food, note: '草原农夫 +2 食' },
     ironAxe: { wt: (perWorker('forest', 20).wood! - perWorker('forest').wood!) * PRICE.wood, note: '森林樵夫 +2.5 木' },
     pick: { wt: (perWorker('hills', 20).stone! - perWorker('hills').stone!) * PRICE.stone, note: '丘陵石匠 +2 石' },
     store: { wt: 1 * PRICE.food, note: '每回合少吃 1 食，另加 +40 储量' },
-    workshop: { wt: 0, note: '不直接产出，是工具的前置' },
+    workshop: { wt: 0, note: '不直接产出，是制作的前置' },
     watchtower: { wt: 0, note: '只加视野' },
+    expansion: { wt: 0, note: '槽位 3 → 6' },
+    crew1: { wt: 0, note: '每格上限 +2：价值看工位是否吃紧（见第 3 节）' },
+    crew2: { wt: 0, note: '每格上限再 +2' },
+    outskirts: { wt: 0, note: '半径 +1：作业格 6 → 18' },
     jars: { wt: 0, note: '只加储量 —— 价值在迁徙半径（见第 4 节）' },
     packs: { wt: 0, note: '只加行动力 —— 价值在迁徙半径（见第 4 节）' },
   };
 
   console.log(`\n${pad('项目', 10)} │ ${pad('造价(人·回合)', 13)} │ ${pad('每回合回报', 10)} │ ${pad('回收期', 8)} │ 说明`);
   console.log('─'.repeat(80));
-  const rows: [string, Cost, ToolId | FacilityId][] = [
-    ...(Object.keys(FACILITIES) as FacilityId[]).map((id) => [FACILITIES[id].label.zh, FACILITIES[id].cost, id] as [string, Cost, FacilityId]),
-    ...(Object.keys(TOOLS) as ToolId[]).map((id) => [TOOLS[id].label.zh, TOOLS[id].cost, id] as [string, Cost, ToolId]),
+  const rows: [string, Cost, Id][] = [
+    ...(Object.keys(BUILDINGS) as BuildingId[]).map((id) => [BUILDINGS[id].label.zh, BUILDINGS[id].cost, id] as [string, Cost, Id]),
+    ...(Object.keys(GEAR) as GearId[]).map((id) => [GEAR[id].label.zh, GEAR[id].cost, id] as [string, Cost, Id]),
+    ...(Object.keys(TOOLS) as ToolId[]).map((id) => [TOOLS[id].label.zh, TOOLS[id].cost, id] as [string, Cost, Id]),
   ];
   for (const [label, cost, id] of rows) {
     const c = costInWT(cost);
@@ -177,7 +192,7 @@ if (section(2, '投资回收期')) {
         `${pad(Number.isFinite(back) ? `${fix(back)} 回合` : '—', 8)} │ ${g.note}`,
     );
   }
-  const shed = costInWT(FACILITIES.workshop.cost);
+  const shed = costInWT(BUILDINGS.workshop.cost);
   console.log(
     `\n工棚 ${fix(shed)} 人·回合是一次性门槛：只造 1 把骨锄的话，骨锄的实际回收期是 ` +
       `${fix((shed + costInWT(TOOLS.hoe.cost)) / gain.hoe!.wt)} 回合；造到 4 把才摊薄到 ` +
@@ -272,7 +287,7 @@ if (section(3, '开局承载力（40 个种子的开局作业圈）')) {
   console.log(
     `
 开局作业圈里有石料可采的：${withStone} / ${rings.length}。` +
-      `剩下的那些，不搬家就连工棚都造不了（要 ${FACILITIES.workshop.cost.stone} 石）。`,
+      `剩下的那些，不搬家就连工棚都造不了（要 ${BUILDINGS.workshop.cost.stone} 石）。`,
   );
 
   const kinds = new Map<string, number>();
@@ -306,10 +321,10 @@ if (section(4, '迁徙半径')) {
     '\n满仓出发，不靠沿途补给，一口气最远能走几格（拔营那一回合也要吃饭）：\n' +
       '  公式：距离 = (仓里的粮 ÷ 人数 − 1) × 每回合推进格数\n',
   );
+  // 仓库是建筑，留在营地址上；赶路时能带的只有基础储量和储藏瓮
   const caps = [
     ['基础 40', STOCK_BASE_CAP],
-    ['+仓库 80', STOCK_BASE_CAP + STORE_CAP_BONUS],
-    ['+储藏瓮 120', STOCK_BASE_CAP + STORE_CAP_BONUS + JARS_CAP_BONUS],
+    ['+储藏瓮 80', STOCK_BASE_CAP + JARS_CAP_BONUS],
   ] as const;
   const crews = [3, 5, 8, 12, 16];
   console.log(`${pad('储量', 12)} │ ${crews.map((n) => pad(`${n}人`, 9)).join(' │ ')}`);
@@ -375,7 +390,7 @@ function reassign(g: GameState, cap: number): void {
   for (const h of tiles) while (crewAt(g, h) > 0) unassign(g, h);
 
   const N = g.party.people;
-  const eat = N * UPKEEP_FOOD_PER_PERSON - (hasFacility(g, 'store') ? 1 : 0);
+  const eat = foodUpkeep(g);
   const capStock = stockCap(g);
 
   const pick = (r: ResourceId) => {
@@ -403,7 +418,8 @@ function reassign(g: GameState, cap: number): void {
     return true;
   };
 
-  const woodWant = UPKEEP_WOOD_PER_TURN + (g.stock.wood < 16 ? 1.5 : 0);
+  // 冬天柴耗翻三倍，入冬前也要多囤：秋天最后几回合就开始多派人砍柴
+  const woodWant = woodUpkeep(g) + (g.stock.wood < 16 ? 1.5 : 0);
   while (idleCount(g) > 0 && projected(g).wood < woodWant) if (!send('wood')) break;
 
   const foodWant = eat + (g.stock.food < 3 * N ? Math.ceil(N / 3) : 0);
@@ -428,11 +444,11 @@ function reassign(g: GameState, cap: number): void {
 /** 造东西。永远给篝火留 8 根柴 */
 function build(g: GameState): number | null {
   const reserve = (c: Cost) => (c.wood ?? 0) <= g.stock.wood - 8;
-  const tryFac = (id: FacilityId) => !hasFacility(g, id) && reserve(FACILITIES[id].cost) && buildFacility(g, id);
+  const tryFac = (id: BuildingId) => !hasBuilding(g, id) && reserve(BUILDINGS[id].cost) && buildBuilding(g, id);
   const tryTool = (id: ToolId) => reserve(TOOLS[id].cost) && craftTool(g, id);
 
   if (tryFac('workshop')) return null;
-  if (hasFacility(g, 'workshop')) {
+  if (hasBuilding(g, 'workshop')) {
     // 工具只造到用得上的数量：派在对口格子上的人数
     let farmers = 0;
     let loggers = 0;
@@ -517,8 +533,8 @@ function runOnce(seed: string, cap: number, turns: number, events = true): RunLo
       log.grown += g.party.people - before;
     }
 
-    if (log.workshopAt == null && hasFacility(g, 'workshop')) log.workshopAt = turnBefore;
-    if (log.storeAt == null && hasFacility(g, 'store')) log.storeAt = turnBefore;
+    if (log.workshopAt == null && hasBuilding(g, 'workshop')) log.workshopAt = turnBefore;
+    if (log.storeAt == null && hasBuilding(g, 'store')) log.storeAt = turnBefore;
     if (log.firstToolAt == null && Object.values(g.works.tools).some((n) => n > 0)) log.firstToolAt = turnBefore;
 
     log.people.push(g.party.people);

@@ -10,6 +10,7 @@
  */
 export const STRINGS = {
   turn: { en: 'Turn', zh: '回合' },
+  season: { en: 'Season', zh: '季节' },
   moves: { en: 'Moves', zh: '行动力' },
   people: { en: 'People', zh: '人数' },
   /** 只作为 "1 idle" 的后缀出现，所以小写 */
@@ -40,14 +41,59 @@ export const STRINGS = {
   moreEvents: { en: 'more after this', zh: '件在后面' },
   noEffect: { en: 'Nothing changes', zh: '什么也不会变' },
   cannotAfford: { en: 'Not enough for this', zh: '不够' },
-  needWorkshop: { en: 'Build a workshop first', zh: '要先建工棚' },
+  needWorkshop: { en: 'Needs a workshop at this camp', zh: '这处营地要有工棚才能制作' },
+  owned: { en: 'Owned', zh: '已有' },
+  slots: { en: 'Slots', zh: '槽位' },
+  sites: { en: 'Camp sites', zh: '营地址' },
+  /** 地格面板里：这一格是营地址 */
+  siteHere: { en: 'Camp site', zh: '营地址' },
+  noSlot: { en: '(no slot)', zh: '（不占槽位）' },
+  demolish: { en: 'Demolish', zh: '拆除' },
+  cancel: { en: 'Cancel', zh: '取消' },
+  /** 拆除确认："拆除 了望塔？返还 5❙ 4◆" —— 后面接返还的数量 */
+  confirmDemolish: { en: 'Demolish {name}? You get back', zh: '拆除{name}？返还' },
+  /** 拔营确认，后面接要扔掉的数量 */
+  confirmBreak: {
+    en: 'The store stays here. Breaking camp throws away what no longer fits:',
+    zh: '仓库会留在这里。拔营后放不下的东西要扔掉：',
+  },
+  gearGroup: {
+    tools: { en: 'Tools', zh: '工具' },
+    party: { en: 'Party gear', zh: '行装' },
+  },
+  buildBlocked: {
+    requires: { en: 'Needs {name} here first', zh: '这里要先有{name}' },
+    slots: { en: 'No free slot', zh: '没有空槽位' },
+    siteLimit: {
+      en: 'Already {n} camp sites — build at one of them',
+      zh: '营地址已满 {n} 处，只能在已有的营地址建造',
+    },
+  },
+  demolishBlocked: {
+    needed: { en: 'Other buildings here depend on it', zh: '这里有建筑依赖它' },
+  },
+  /** 不挡操作的提示条 */
+  notice: {
+    season: {
+      spring: { en: 'Spring has come', zh: '春天来了' },
+      summer: { en: 'Summer has come', zh: '夏天到了' },
+      autumn: { en: 'Autumn has come', zh: '秋天到了' },
+      winter: { en: 'Winter has come', zh: '冬天来了' },
+    },
+    /** 没死人时只说丢了东西 —— "失去 0 人"读起来像是出了错 */
+    stranded: { en: 'Caught in the thaw — lost', zh: '困在化冻的水里，丢了' },
+    strandedPeople: {
+      en: 'Caught in the thaw — {n} drowned, and lost',
+      zh: '困在化冻的水里，淹死 {n} 人，还丢了',
+    },
+  },
   toolRule: {
     en: 'Handed out in deployment order — the first ones sent get them',
     zh: '按部署顺序发放：最先派出去的人先拿到',
   },
   tab: {
-    facilities: { en: 'Facilities', zh: '设施' },
-    crafting: { en: 'Crafting', zh: '制作' },
+    buildings: { en: 'Buildings', zh: '建筑' },
+    gear: { en: 'Gear', zh: '装备' },
   },
   perHarvest: { en: 'Per harvest', zh: '每次采集' },
   /** 有矿脉但还没走到跟前。面板上只说有东西，不说是什么 */
@@ -74,6 +120,16 @@ export const STRINGS = {
     tileFull: { en: 'This tile is full', zh: '这一格已站满' },
   },
 };
+
+/**
+ * 带占位符的文案："这里要先有{name}" → "这里要先有扩编"。
+ *
+ * 只拼接源码里写死的字符串（名字也来自各张表），所以宿主站点按源码扫描生成的
+ * 字体子集照样覆盖得到 —— 拼的是现成的字，不是运行时编出来的新字。
+ */
+export function fill(text, vars) {
+  return text.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
+}
 
 export function t(lang, path) {
   let node = STRINGS;

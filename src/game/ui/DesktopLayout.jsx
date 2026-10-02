@@ -4,9 +4,9 @@
  * 前提是有鼠标：左上角的 HUD 不挡路（指针能绕开），右下角的地格面板跟着
  * 悬停实时变。信息密度可以高，因为一屏放得下，而且读者可以边看边移动光标。
  */
-import { Actions, CrewStepper, Resource, RESOURCE_ORDER, TileFacts } from './parts.jsx';
+import { Actions, CrewStepper, Resource, RESOURCE_ORDER, SeasonBadge, TileFacts } from './parts.jsx';
 import { RESOURCES } from '../core/terrain.ts';
-import { PARTY_MOVES, UPKEEP_FOOD_PER_PERSON, UPKEEP_WOOD_PER_TURN } from '../core/state.ts';
+import { Notices } from './Overlays.jsx';
 import { t } from '../i18n.js';
 import './DesktopLayout.css';
 
@@ -23,12 +23,16 @@ export default function DesktopLayout(g) {
 
       <div className="hg-panel hg-hud">
         <Row label={t(lang, 'turn')} value={game.turn} />
+        <div className="hg-row">
+          <span>{t(lang, 'season')}</span>
+          <SeasonBadge season={g.season} lang={lang} />
+        </div>
         <Row
           label={t(lang, camped ? 'camped' : 'roaming')}
           value={
             camped
               ? `${game.party.people - idle} / ${game.party.people}`
-              : `${game.party.moves} / ${PARTY_MOVES}`
+              : `${game.party.moves} / ${g.maxMoves}`
           }
         />
         <Row
@@ -64,9 +68,10 @@ export default function DesktopLayout(g) {
 
         <div className="hg-row hg-dim">
           <span>{t(lang, 'upkeep')}</span>
+          {/* 读规则层算好的数：仓库省的那份粮、冬天翻倍的柴都已经在里面了 */}
           <span>
-            {game.party.people * UPKEEP_FOOD_PER_PERSON}
-            {RESOURCES.food.glyph} {UPKEEP_WOOD_PER_TURN}
+            {g.foodUpkeep}
+            {RESOURCES.food.glyph} {g.woodUpkeep}
             {RESOURCES.wood.glyph}
           </span>
         </div>
@@ -113,6 +118,9 @@ export default function DesktopLayout(g) {
       )}
 
       <div className="hg-hint">{t(lang, camped ? 'hintCamped' : 'hintRoam')}</div>
+
+      {/* 地图正上方居中。HUD 在左上、营地按钮在右上，中间是空的 */}
+      <Notices notices={g.notices} lang={lang} />
     </>
   );
 }

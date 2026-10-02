@@ -20,7 +20,8 @@ src/game/            portable boundary: drops into any React project as-is
     map.ts           map storage (odd-r flat array) and noise generation
     terrain.ts       terrain table
     deposits.ts      deposit table and the distance gradient
-    works.ts         facility and tool tables
+    seasons.ts       calendar and season effects (derived from the turn)
+    works.ts         building, gear and tool tables
     state.ts         state and rules
     save.ts          save serialisation
   render/            camera.ts camera and culling, draw.ts canvas drawing
@@ -29,7 +30,8 @@ src/game/            portable boundary: drops into any React project as-is
     Game.jsx         four jobs only: mount canvas, measure width, pick layout,
                      place the camp panel
     DesktopLayout    floating panels  /  MobileLayout  top strip + thumb dock
-    CampPanel        facilities + crafting, an on-demand drawer
+    CampPanel        buildings + gear, an on-demand drawer
+    Overlays.jsx     confirmation dialog (blocks) and notices (never block)
     parts.jsx        display pieces shared by both layouts
     SaveControls     new game / save / load
 src/App.jsx          dev shell, thrown away on integration
@@ -56,12 +58,45 @@ progress bar and `endTurn` all read it. Two implementations are invisible on
 screen and surface only as "the panel says 60 but the bar moved 40". There is a
 test in `works.test.ts` pinning them together.
 
-**Facilities and tools hang off the party (`state.works`), not the camp
-(`state.camp`).** Breaking camp nulls `camp` while `works` travels with the
-party, so "they survive re-camping" falls out of the data model and needs **no
-carry-over logic** — a "stash the facilities before breaking camp" step is
-exactly where a field gets forgotten later. This is a deliberate trade of
-realism for playability; read it as gear the expedition packs up and takes.
+**Gear hangs off the party (`state.works`); buildings hang off a camp site
+(`map.sites`). Neither is ever copied.** Works are split by where they live:
+tools, clay jars and pack frames travel; store, workshop, watchtower and the rest
+stay where they were built. Breaking camp nulls `camp`, the gear is still on the
+party, and the site is still on the map — so "gear survives", "buildings stay
+behind" and "come back and they work again" all fall out of the data model with
+**no carry-over logic**. A "stash the buildings before breaking camp, restore them
+after" step is exactly where a field gets forgotten later.
+
+**The camp finds its site by position, not by a pointer.** `currentSite()` looks
+up the site whose `at` equals `camp.at`. Sites can fall down or be demolished;
+a stored reference would go stale, a position cannot.
+
+**Buildings only work at their own site.** Everything reads `hasBuilding()`,
+which looks at the current site. A store's +40 storage stops counting when you
+camp elsewhere, which is why breaking camp can throw goods away — and why that is
+confirmed first, naming the amounts (`breakCampLoss()`).
+
+**The site limit blocks the first building at a new place, never making camp.**
+Camping creates no site, so blocking it would leave a party that already has five
+sites unable to work anywhere else.
+
+**The season is derived from the turn, never stored.** `seasonAt(turn)`. A
+stored season is a second source of truth that can disagree with the turn and has
+to be validated on load.
+
+**Seasons change systems, and every effect is on or off.** Spring changes
+movement and growth, summer sight, winter fuel and the shape of the coast. None
+of them scales tile yields — that would make the player recompute income every
+season. Movement cost, seasons included, is decided in exactly one place:
+`stepCost()`.
+
+**The thaw never strands anyone forever, and never erases a shortage.** A party
+that starts a turn on thawed water may wade into other shallows (never the sea or
+mountains — otherwise it could walk across the ocean), and pays 0–2 people and
+10–30% of its stock for each turn it ends there. The penalty takes only
+**positive** stock: it runs before the shortage check, when a short resource is
+negative, and a share of a negative number rounded up is a negative loss — which
+silently refills the deficit and cancels the famine. A test pins it.
 
 **One set of interaction logic, two layouts.** Desktop and mobile present
 information differently, but drag threshold, pinch zoom and click semantics are
@@ -222,7 +257,7 @@ carry a `v` field; a mismatch is rejected outright rather than force-parsed.
 **Stocks are capped, and everything that adds to them goes through
 `clampToCap()`.** Without a cap, wood measured 1474 by turn 80 — a number, not
 a decision. With one, every turn of surplus has to be **spent or thrown away**,
-which is what makes facilities, tools and every future sink matter. It also fits
+which is what makes buildings, gear and every future sink matter. It also fits
 the fiction: a nomadic party carries what it can lift.
 
 The danger is a path that adds resources without clamping — turn resolution
@@ -361,6 +396,16 @@ compares per-tile caps 2, 3 and 5; driving it through `assign()` would clamp
 every variant to the real cap of 2 and print three identical rows. It places
 workers itself.
 
+**`.hexgame b` colours every `<b>` accent green.** Its specificity (0,1,1) beats
+a single class (0,1,0), so a `<b class="…">` that sets its own colour loses. The
+season notice's title came out green instead of the season's colour; it is a
+`<span>` now. Use `<span>` for emphasis that carries its own colour.
+
+**Anything placed under the mobile status strip must hang off the strip, not a
+fixed `top`.** The strip's height depends on how many resource rows it holds.
+Notices were first placed at a fixed 84px and landed on a 105px strip; they are
+now children of `.hg-m-status`, positioned from its bottom edge.
+
 **The shared `--panel` colour is translucent.** That is for small panels floating
 over a map corner. A panel that covers the whole area (the camp panel in the
 narrow layout, or in overlay mode) must be opaque, or the map and status strip
@@ -436,7 +481,7 @@ borders, so it inherits whatever button styling surrounds it.
 | Prop | `lang`, on both `Game` and `SaveControls` |
 | Values | `'en'` or `'zh'` |
 | Default | `'zh'` if omitted |
-| Where strings live | `game/i18n.js`, plus `{ en, zh }` labels in `terrain.ts`, `works.ts` and the `SaveError` throws |
+| Where strings live | `game/i18n.js`, plus `{ en, zh }` labels in `terrain.ts`, `deposits.ts`, `works.ts`, `seasons.ts`, `events.ts` and the `SaveError` throws |
 
 Pass the site's current language straight through; the game renders it and owns
 nothing else about language.
@@ -469,8 +514,9 @@ on a wide screen therefore does the right thing with no configuration.
   where the full font is installed. All game copy is literal today; watch this
   when adding generated text.
 - **z-index:** the site's bottom bar is 1000 and tooltips are 1200. Everything the
-  game draws stays inside its own container and never exceeds z-index 2, so it
-  sits under both. Revisit this if the game ever needs a real modal.
+  game draws stays inside its own container. The two dialogs (events,
+  confirmation) use z-index 5 and everything else at most 2, so all of it sits
+  under both. Revisit this if the game ever needs a modal that covers the page.
 - **Do not use `100vw`** (it includes the scrollbar). The game measures itself
   with `clientWidth` through a ResizeObserver and needs no viewport units.
 - The site is plain JS with oxlint, which is why **core logic is `.ts` and React

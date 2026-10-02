@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { SAVE_VERSION, SaveError, parseSave, saveFilename, serialize } from './save.ts';
 import {
   assign,
-  buildFacility,
+  buildBuilding,
   craftTool,
   createGame,
   endTurn,
@@ -31,8 +31,8 @@ function played(): GameState {
   g.stock.stone = 200;
   g.party.people = 6;
 
-  buildFacility(g, 'workshop');
-  buildFacility(g, 'watchtower');
+  buildBuilding(g, 'workshop');
+  buildBuilding(g, 'watchtower');
   craftTool(g, 'axe');
   craftTool(g, 'hoe');
 

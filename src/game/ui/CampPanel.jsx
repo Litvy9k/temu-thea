@@ -1,5 +1,8 @@
 /**
- * 营地面板：设施 + 制作。
+ * 营地面板：建筑 + 装备。
+ *
+ * 两页按**东西放在哪**分：建筑留在这处营地址上，装备跟着队伍走。
+ * "制作"出来的都是装备，所以没有单独的制作页。
  *
  * 这是一个**按需打开**的抽屉，不是常驻面板 —— 里面的决定几十回合才做一次，
  * 常驻会白占掉每回合都要看的那块空间。两套布局共用这一个组件，只是外壳不同：
@@ -10,20 +13,35 @@ import { useState } from 'react';
 
 import { RESOURCES } from '../core/terrain.ts';
 import {
-  FACILITIES,
-  FACILITY_ORDER,
+  BUILDINGS,
+  BUILDING_ORDER,
+  GEAR,
+  GEAR_ORDER,
   TOOLS,
   TOOL_ORDER,
 } from '../core/works.ts';
-import { buildBlocker, craftBlocker, hasFacility } from '../core/state.ts';
-import { t } from '../i18n.js';
+import {
+  MAX_SITES,
+  buildBlocker,
+  craftBlocker,
+  currentSite,
+  demolishBlocker,
+  gearBlocker,
+  hasBuilding,
+  hasGear,
+  slotCapacity,
+  slotsUsed,
+} from '../core/state.ts';
+import { Amounts } from './parts.jsx';
+import { fill, t } from '../i18n.js';
 import './CampPanel.css';
 
-const TABS = ['facilities', 'crafting'];
+const TABS = ['buildings', 'gear'];
 
 export default function CampPanel(g) {
   const { game, lang } = g;
-  const [tab, setTab] = useState('facilities');
+  const [tab, setTab] = useState('buildings');
+  const site = currentSite(game);
 
   return (
     <div className="hg-camp">
@@ -46,77 +64,130 @@ export default function CampPanel(g) {
       </div>
 
       <div className="hg-camp__body">
-        {tab === 'facilities' &&
-          FACILITY_ORDER.map((id) => (
-            <BuildRow
-              key={id}
-              name={FACILITIES[id].label[lang]}
-              desc={FACILITIES[id].desc[lang]}
-              cost={FACILITIES[id].cost}
-              blocker={buildBlocker(game, id)}
-              built={hasFacility(game, id)}
-              onAct={() => g.build(id)}
-              lang={lang}
-            />
-          ))}
-
-        {tab === 'crafting' && (
+        {tab === 'buildings' && (
           <>
-            {/* 发放规则写在造工具的地方 —— 玩家问"为什么有的点是绿的"就是在这一页 */}
-            <p className="hg-dim hg-camp__note">{t(lang, 'toolRule')}</p>
-            {!hasFacility(game, 'workshop') && (
-              <p className="hg-warn hg-camp__note">{t(lang, 'needWorkshop')}</p>
-            )}
-            {TOOL_ORDER.map((id) => (
-              <BuildRow
-                key={id}
-                name={TOOLS[id].label[lang]}
-                desc={toolDesc(id, lang)}
-                cost={TOOLS[id].cost}
-                blocker={craftBlocker(game, id)}
-                count={game.works.tools[id]}
-                onAct={() => g.craft(id)}
-                lang={lang}
-              />
+            {/* 两个计数放在最上面：选建什么之前，先知道还剩几个位置 */}
+            <p className="hg-dim hg-camp__note hg-camp__counts">
+              <span>
+                {t(lang, 'slots')} <b>{slotsUsed(site)}</b>/{slotCapacity(site)}
+              </span>
+              <span>
+                {t(lang, 'sites')} <b>{game.map.sites.length}</b>/{MAX_SITES}
+              </span>
+            </p>
+            {BUILDING_ORDER.map((id) => (
+              <BuildingRow key={id} id={id} g={g} />
             ))}
           </>
         )}
 
+        {tab === 'gear' && (
+          <>
+            {!hasBuilding(game, 'workshop') && (
+              <p className="hg-warn hg-camp__note">{t(lang, 'needWorkshop')}</p>
+            )}
+
+            <h4 className="hg-camp__group">{t(lang, 'gearGroup.tools')}</h4>
+            {/* 发放规则写在造工具的地方 —— 玩家问"为什么有的条是绿的"就是在这一页 */}
+            <p className="hg-dim hg-camp__note">{t(lang, 'toolRule')}</p>
+            {TOOL_ORDER.map((id) => (
+              <Row
+                key={id}
+                name={TOOLS[id].label[lang]}
+                desc={toolDesc(id, lang)}
+                cost={TOOLS[id].cost}
+                blocked={craftBlocker(game, id) != null}
+                count={game.works.tools[id]}
+                onAct={() => g.craft(id)}
+              />
+            ))}
+
+            <h4 className="hg-camp__group">{t(lang, 'gearGroup.party')}</h4>
+            {GEAR_ORDER.map((id) => (
+              <Row
+                key={id}
+                name={GEAR[id].label[lang]}
+                desc={GEAR[id].desc[lang]}
+                cost={GEAR[id].cost}
+                blocked={gearBlocker(game, id) != null}
+                done={hasGear(game, id) ? t(lang, 'owned') : null}
+                onAct={() => g.makeGear(id)}
+              />
+            ))}
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-/** 「6❙ 4◆」这样的一串代价 */
-function Cost({ cost }) {
-  return Object.entries(cost).map(([res, n]) => (
-    <span key={res} className="hg-cost">
-      {n}
-      {RESOURCES[res].glyph}
-    </span>
-  ));
+/**
+ * 一座建筑。建好的显示"已建"和拆除按钮；没建的显示造价按钮，
+ * 不能建的时候说清楚差在哪 —— 只给一个灰按钮的话，玩家不知道是缺材料、
+ * 缺前置还是没槽位。缺材料不另外说明，造价按钮上的数字就是说明。
+ */
+function BuildingRow({ id, g }) {
+  const { game, lang } = g;
+  const b = BUILDINGS[id];
+  const built = hasBuilding(game, id);
+  const blocker = buildBlocker(game, id);
+  const stuck = built ? demolishBlocker(game, id) : null;
+
+  let why = null;
+  if (!built && blocker === 'requires') {
+    why = fill(t(lang, 'buildBlocked.requires'), { name: BUILDINGS[b.requires].label[lang] });
+  } else if (!built && blocker === 'slots') {
+    why = t(lang, 'buildBlocked.slots');
+  } else if (!built && blocker === 'siteLimit') {
+    why = fill(t(lang, 'buildBlocked.siteLimit'), { n: MAX_SITES });
+  } else if (built && stuck === 'needed') {
+    why = t(lang, 'demolishBlocked.needed');
+  }
+
+  return (
+    <Row
+      name={b.label[lang]}
+      desc={b.desc[lang]}
+      cost={b.cost}
+      blocked={blocker != null}
+      done={built ? t(lang, 'built') : null}
+      why={why}
+      onAct={() => g.build(id)}
+      // 被依赖的不给拆按钮，而不是给一个点了没反应的按钮
+      onUndo={built && stuck == null ? () => g.askDemolish(id) : null}
+      undoLabel={t(lang, 'demolish')}
+    />
+  );
 }
 
 /**
- * 设施和工具用同一行样式：名字 + 一句效果 + 代价 + 一个按钮。
- * 两者的差别只在"造过就没了"还是"能一直造"，用 built / count 区分。
+ * 建筑、工具、行装共用一行样式：名字 + 一句效果 + 代价按钮。
+ * 差别只在"造过就没了"（done）还是"能一直造"（count），以及建筑能拆（onUndo）。
  */
-function BuildRow({ name, desc, cost, blocker, built, count, onAct, lang }) {
+function Row({ name, desc, cost, blocked, done, count, why, onAct, onUndo, undoLabel }) {
   return (
-    <div className={`hg-build ${blocker ? 'is-off' : ''}`}>
+    <div className={`hg-build ${blocked && !done ? 'is-off' : ''}`}>
       <div className="hg-build__text">
         <div className="hg-build__name">
           {name}
           {count > 0 && <span className="hg-build__count"> ×{count}</span>}
         </div>
         <div className="hg-dim">{desc}</div>
+        {why && <div className="hg-warn hg-build__why">{why}</div>}
       </div>
 
-      {built ? (
-        <span className="hg-build__done">{t(lang, 'built')}</span>
+      {done ? (
+        <span className="hg-build__done">
+          {done}
+          {onUndo && (
+            <button type="button" className="hg-build__undo" onClick={onUndo}>
+              {undoLabel}
+            </button>
+          )}
+        </span>
       ) : (
-        <button type="button" onClick={onAct} disabled={blocker != null}>
-          <Cost cost={cost} />
+        <button type="button" onClick={onAct} disabled={blocked}>
+          <Amounts amounts={cost} />
         </button>
       )}
     </div>

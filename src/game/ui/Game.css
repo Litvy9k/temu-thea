@@ -253,3 +253,77 @@
   color: var(--accent);
   font-weight: 600;
 }
+
+/* ---------------------------------------------------------------- 季节 */
+
+/*
+ * 季节徽标是个按钮（触屏上要点得到），但要长得像一段文字。
+ *
+ * 选择器的写法是算过的：全局的 .hexgame button:hover:not(:disabled)
+ * 是 0,3,1，悬停时会把它刷成强调绿底。这里用 button.hg-season 把每一条都
+ * 抬到比全局规则多一个类，否则就会留下"看着写了、其实没生效"的规则。
+ * 字的颜色由组件里的 style 给（每季不同），行内样式本来就压得过这些。
+ */
+.hexgame button.hg-season {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: calc(3 * var(--u));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-weight: 600;
+}
+
+.hexgame button.hg-season:hover:not(:disabled),
+.hexgame button.hg-season:active:not(:disabled) {
+  background: transparent;
+}
+
+.hg-season__icon {
+  align-self: center;
+}
+
+.hexgame .hg-season__day {
+  color: var(--accent);
+}
+
+.hexgame .hg-season__len {
+  color: var(--ink-dim);
+  font-weight: 400;
+}
+
+/* 当季规则。徽标在两套布局里都靠右，所以说明框也贴右边往下展开 */
+.hg-season__tip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 2;
+  margin-top: calc(4 * var(--u));
+  padding: calc(6 * var(--u)) calc(8 * var(--u));
+  flex-direction: column;
+  gap: calc(2 * var(--u));
+  white-space: nowrap;
+  text-align: left;
+  font-weight: 400;
+  color: var(--ink);
+  background: #05090b;
+  border: var(--line-w, 1px) solid var(--line);
+}
+
+.hg-season.is-open .hg-season__tip {
+  display: flex;
+}
+
+/* 桌面上悬停就出来；触屏没有悬停，靠点一下（上面的 is-open） */
+@media (hover: hover) {
+  .hg-season:hover .hg-season__tip {
+    display: flex;
+  }
+}
+
+/* 地格面板里的营地址那一行 */
+.hexgame .hg-site-line {
+  color: var(--ink-dim);
+}

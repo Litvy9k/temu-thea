@@ -10,11 +10,11 @@
  *   地图种子  只作记录用。地形是照原样存下来的，不靠种子重新生成 ——
  *            否则以后一动地形表或噪声参数，所有老存档的地图都会悄悄变样
  */
-import type { GameMap, Tile } from './map.ts';
+import type { GameMap, Site, Tile } from './map.ts';
 import { type GameState, type Stock, enforceCrewCap, fillStock, refreshVision } from './state.ts';
 import type { DepositId } from './deposits.ts';
 import { type ResourceId, RESOURCE_IDS, type TerrainId } from './terrain.ts';
-import { fillTools } from './works.ts';
+import { BUILDINGS, type BuildingId, GEAR, type GearId, fillTools } from './works.ts';
 import type { Axial } from './hex.ts';
 
 export const SAVE_VERSION = 1;
@@ -89,6 +89,15 @@ interface SavedMap {
   origin?: Axial;
   /** 下标 -> 采集进度。绝大多数格子是 0，所以存稀疏表 */
   progress: Record<string, number>;
+  /** 营地址。后加的字段，老存档没有 */
+  sites?: Site[];
+}
+
+/** 装备分家之前的样子：仓库、工棚、了望塔、储藏瓮、背架都在 facilities 里 */
+interface SavedWorks {
+  gear?: GearId[];
+  facilities?: string[];
+  tools: GameState['works']['tools'];
 }
 
 interface SaveFile {
@@ -98,7 +107,7 @@ interface SaveFile {
   stock: GameState['stock'];
   party: GameState['party'];
   camp: GameState['camp'];
-  works: GameState['works'];
+  works: SavedWorks;
   lastIncome: GameState['lastIncome'];
   lastShortage: GameState['lastShortage'];
   /** 后加的字段，旧存档没有，读档时给默认值 */
@@ -176,6 +185,7 @@ export function serialize(state: GameState): string {
       explored,
       deposit,
       progress,
+      sites: map.sites,
     },
   };
 
@@ -278,6 +288,7 @@ export function parseSave(text: string): GameState {
     // 老存档没存出生点。拿队伍当下的位置顶上 —— 反正那张图上一处矿脉也没有，
     // origin 只在生成矿脉时起作用，填错了也不会改变任何已有的东西
     origin: m.origin ?? file.party?.at ?? { q: 0, r: 0 },
+    sites: readSites(m.sites, file.turn ?? 1),
     tiles,
   };
 
@@ -290,25 +301,30 @@ export function parseSave(text: string): GameState {
 
   const stock = fillStock(file.stock);
 
+  const turn = file.turn ?? 1;
+  const works = readWorks(file.works, map, file.party.at, turn);
+
   const state: GameState = {
     map,
-    party: file.party,
+    // stranded 是后加的；化冻的判断在下面 refreshVision 之后不会自动补，
+    // 但它只决定这一回合能不能涉水，读档那一回合按"不在水里"算是安全的一边
+    party: { ...file.party, stranded: Boolean(file.party.stranded) },
     camp: file.camp ?? null,
-    // 老存档的 tools 里只有斧和锄，缺的补 0 —— undefined 会让工具分配里的
-    // left[t] > 0 静静地永远为假，没有报错，只是工具不生效了
-    works: { facilities: file.works.facilities ?? [], tools: fillTools(file.works.tools) },
-    turn: file.turn ?? 1,
+    works,
+    turn,
     stock,
     lastIncome: fillStock(file.lastIncome),
     lastShortage: file.lastShortage ?? { food: 0, wood: 0 },
     lastWasted: fillStock(file.lastWasted),
+    // 只是给界面的一次性提示，不存
+    lastStranded: null,
     hardship: file.hardship ?? 0,
     over: Boolean(file.over),
     // 旧存档存的是单个 pendingEvent，包成队列 —— 加字段并给了安全默认值
     // 就不该提 v，提了等于把读得回来的存档全部作废
     pendingEvents: file.pendingEvents ?? (file.pendingEvent ? [file.pendingEvent] : []),
     seenEvents: file.seenEvents ?? [],
-    // 老存档按实际库存推，再把前三种兵底上 —— 开局就该看得见它们
+    // 老存档按实际库存推，再把前三种兜底上 —— 开局就该看得见它们
     seenResources:
       file.seenResources ??
       RESOURCE_IDS.filter((r) => ['food', 'wood', 'stone'].includes(r) || stock[r] > 0),
@@ -321,4 +337,56 @@ export function parseSave(text: string): GameState {
   enforceCrewCap(state);
   refreshVision(state);
   return state;
+}
+
+/**
+ * 读营地址。存档是用户给的文件，逐项校验：不认识的建筑直接丢掉，
+ * 一座建筑都不剩的营地址也丢掉 —— "没有建筑就不算营地址"在读档时同样成立。
+ */
+function readSites(raw: unknown, turn: number): Site[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Site[] = [];
+  for (const r of raw as Partial<Site>[]) {
+    if (!r?.at || typeof r.at.q !== 'number' || typeof r.at.r !== 'number') continue;
+    const buildings = (Array.isArray(r.buildings) ? r.buildings : []).filter(
+      (b): b is BuildingId => typeof b === 'string' && b in BUILDINGS,
+    );
+    if (!buildings.length) continue;
+    out.push({
+      at: { q: r.at.q, r: r.at.r },
+      buildings: [...new Set(buildings)],
+      lastVisit: typeof r.lastVisit === 'number' ? r.lastVisit : turn,
+    });
+  }
+  return out;
+}
+
+/**
+ * 读装备，顺带把装备分家之前的存档迁过来。
+ *
+ * 那时仓库、工棚、了望塔和储藏瓮、背架都放在 works.facilities 里，跟着队伍走。
+ * 现在前三样是建筑：放进队伍当前位置的一处营地址（扎着营的话就是营地那一格，
+ * 读回来立刻生效）。后两样是装备，留在队伍身上。
+ */
+function readWorks(raw: SavedWorks, map: GameMap, at: Axial, turn: number): GameState['works'] {
+  const old = raw.facilities ?? [];
+  const gear = new Set<GearId>((raw.gear ?? []).filter((g) => g in GEAR));
+  for (const f of old) if (f in GEAR) gear.add(f as GearId);
+
+  const moved = old.filter((f): f is BuildingId => f in BUILDINGS);
+  if (moved.length) {
+    let site = map.sites.find((x) => x.at.q === at.q && x.at.r === at.r);
+    if (!site) {
+      site = { at: { ...at }, buildings: [], lastVisit: turn };
+      map.sites.push(site);
+    }
+    for (const b of moved) if (!site.buildings.includes(b)) site.buildings.push(b);
+  }
+
+  return {
+    gear: [...gear],
+    // 老存档的 tools 里只有斧和锄，缺的补 0 —— undefined 会让工具分配里的
+    // left[t] > 0 静静地永远为假，没有报错，只是工具不生效了
+    tools: fillTools(raw.tools),
+  };
 }

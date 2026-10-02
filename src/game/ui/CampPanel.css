@@ -101,3 +101,41 @@
   margin-left: calc(6 * var(--u));
 }
 
+
+/* ---------------------------------------------------------------- 建筑页 / 装备页 */
+
+/* 槽位和营地址两个计数并排，放在最上面 */
+.hg-camp__counts {
+  display: flex;
+  gap: calc(14 * var(--u));
+}
+
+.hg-camp__counts b {
+  color: var(--accent);
+}
+
+/* 装备页里"工具 / 行装"两组的小标题。不加粗放大：它只是分组，不是新的一页 */
+.hg-camp__group {
+  margin: calc(4 * var(--u)) 0 0;
+  padding-bottom: calc(4 * var(--u));
+  font: inherit;
+  color: var(--ink-dim);
+  border-bottom: var(--line-w, 1px) solid var(--line);
+}
+
+/* 不能建的原因：缺前置、没槽位、营地址满了。缺材料不写，按钮上的数字就是原因 */
+.hg-build__why {
+  margin-top: calc(2 * var(--u));
+}
+
+/*
+ * 拆除按钮跟在"已建"后面，做小一号 —— 它是低频又不可撤销的操作，不该和
+ * 造价按钮一样显眼。.hexgame .hg-build__undo（两个类）压得过
+ * .hg-build button（一个类 + 元素），所以 min-height 能改回来。
+ */
+.hexgame .hg-build__undo {
+  margin-left: calc(8 * var(--u));
+  padding: calc(2 * var(--u)) calc(6 * var(--u));
+  min-height: 0;
+  color: var(--ink-dim);
+}

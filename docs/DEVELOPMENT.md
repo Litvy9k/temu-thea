@@ -12,7 +12,10 @@ work and *what is left to do*, and links there rather than repeating it.
 - [Map generation](#map-generation)
 - [Deposits and surveying](#deposits-and-surveying)
 - [Crew and the per-tile cap](#crew-and-the-per-tile-cap)
+- [Seasons](#seasons)
+- [Camp sites, buildings and gear](#camp-sites-buildings-and-gear)
 - [Rendering](#rendering)
+- [UI overlays](#ui-overlays)
 - [Save format](#save-format)
 - [Events](#events)
 - [Tests](#tests)
@@ -26,7 +29,7 @@ work and *what is left to do*, and links there rather than repeating it.
 npm install
 npm run dev          # dev server on :5173
 npm run build        # static dist/ (JS + CSS, no backend)
-npm test             # 90 tests, node:test, no framework
+npm test             # 123 tests, node:test, no framework
 npm run typecheck    # tsc --noEmit — Vite only strips types, it never checks them
 npm run lint         # oxlint
 ```
@@ -42,13 +45,15 @@ src/game/core/     pure rules — no DOM, no React, runs under node
   map.ts           odd-r flat tile array, noise, terrain, spawn point, deposits
   terrain.ts       terrain table, resource table, primary-yield lookup
   deposits.ts      deposit table, distance gradient, yieldsOf()
-  works.ts         facility and tool tables, costs
+  seasons.ts       calendar, season effects and their constants
+  works.ts         building, gear and tool tables, costs
   events.ts        event table and the condition evaluator
   state.ts         GameState, every action, endTurn()
   save.ts          JSON (de)serialisation with a compressed map
   rng.ts           mulberry32 with a pure step() so the RNG lives in state
 src/game/render/   camera.ts (pan, zoom, culling) and draw.ts (canvas)
-src/game/ui/       React — one hook (useHexGame) drives two layouts
+src/game/ui/       React — one hook (useHexGame) drives two layouts;
+                   Overlays.jsx has the confirmation dialog and notices
 src/game/i18n.js   UI strings as { en, zh } pairs
 scripts/           terminal tools, see below
 ```
@@ -67,13 +72,14 @@ Data flows one way: UI calls an action in `state.ts` → the action mutates
 
 | Field | Meaning |
 | --- | --- |
-| `map` | `{ width, height, seed, origin, tiles[] }` |
-| `party` | `{ at, moves, people }` |
+| `map` | `{ width, height, seed, origin, sites[], tiles[] }` |
+| `party` | `{ at, moves, people, stranded }` |
 | `camp` | `null` while roaming; `{ at, crew, order }` when camped |
-| `works` | `{ facilities[], tools{} }` — on the party, so it survives breaking camp |
+| `works` | `{ gear[], tools{} }` — on the party, so it survives breaking camp |
 | `turn` | 1-based |
 | `stock` | current amount of each of the six resources |
 | `lastIncome` / `lastShortage` / `lastWasted` | last turn's ledger, for the HUD |
+| `lastStranded` | what the thaw took last turn, for a notice; not saved |
 | `hardship` | consecutive shortage turns |
 | `over` | everyone is dead |
 | `pendingEvents` | event ids waiting for a choice; `endTurn` refuses while non-empty |
@@ -90,6 +96,12 @@ only ever go from false to true.
 deployed person in deployment order. Tools are handed out by walking `order`, so
 the order is state, not presentation.
 
+A site is `{ at, buildings[], lastVisit }`. The camp has no pointer to its site:
+`currentSite()` finds the site whose `at` equals `camp.at`.
+
+**The season is not state.** `seasonAt(turn)` derives it from the turn number,
+so there is nothing to keep in sync and nothing to validate on load.
+
 ## Turn resolution
 
 `endTurn()` in `state.ts`, in order:
@@ -98,15 +110,22 @@ the order is state, not presentation.
 2. Tool allocation is computed once for the whole turn.
 3. For every crewed tile: `progress += workRateAt().total`; each full 40 pays out
    `yieldsOf(terrain, deposit)`; the remainder stays on the bar.
-4. Upkeep: food `people × 1 − (store ? 1 : 0)`, wood a flat 1.
+4. Upkeep: `foodUpkeep()` (people − 1 if this camp has a store) and
+   `woodUpkeep()` (1, or 3 in winter).
 5. Income is added to stock, then `clampToCap()` throws away the excess and
    records it in `lastWasted`.
-6. Shortage: negative food or wood is recorded, clamped to 0, and costs one
+6. Stranded on thawed water: lose 0–2 people and 10–30% of each resource,
+   recorded in `lastStranded`. Only positive stock is taken — a negative stock at
+   this point is a shortage, and taking a share of it would erase the shortage.
+7. Shortage: negative food or wood is recorded, clamped to 0, and costs one
    person; `trimCrew()` then withdraws the latest-deployed workers.
-7. Otherwise on every 10th turn, +1 person.
-8. Moves reset to `partyMoves()`, turn advances, `noteResources()` updates the
-   HUD list.
-9. `rollEvent()` rolls every qualifying event against the snapshot.
+8. Otherwise, in spring, every 5th day of the season: +1 person.
+9. The current site's `lastVisit` is refreshed; sites unvisited for
+   `SITE_LIFETIME` turns are removed.
+10. Moves reset to `partyMoves()`, the turn advances, `party.stranded` is set for
+    the new turn, `refreshVision()` runs (summer sight, ice), and `noteResources()`
+    updates the HUD list.
+11. `rollEvent()` rolls every qualifying event against the snapshot.
 
 `workRateAt()` is the only place gathering speed is computed — the panel, the
 bar and step 3 all call it. A test pins them together.
@@ -164,26 +183,128 @@ unsurveyed deposits from the tile panel, yields included.
 | --- | --- | --- |
 | `MAX_CREW_PER_TILE` | 6 | absolute ceiling — one indicator per hex edge |
 | `BASE_CREW_CAP` | 2 | starting cap |
-| `crewCap(state)` | `min(6, 2 + bonuses)` | the live cap; facilities will add here |
-| `workRadius(state)` | 1 | work and survey radius; facilities will add here |
+| `crewCap(state)` | `min(6, 2 + 2 × crew buildings)` | read from the current site |
+| `workRadius(state)` | `1 + (outer grounds ? 1 : 0)` | work **and** survey radius |
 
 `assignBlocker()` returns `'tileFull'` at `crewCap()`. `enforceCrewCap()`
-withdraws over-cap workers latest-deployed first; it runs on load, because saves
-from before the cap dropped from 5 to 2 can have more people on a tile.
+withdraws workers latest-deployed first when they are over the cap **or outside
+the radius**. It runs on load (saves from before the cap dropped from 5 to 2) and
+after a demolition (losing crew expansion or outer grounds).
 
 The choice of 2 comes from the balance measurements below.
+
+## Seasons
+
+`seasons.ts`. A season is 20 turns, a year 80, and turn 1 is the first day of
+autumn (`START_OFFSET = 40`). `seasonAt(turn)` returns `{ id, index, day, year }`.
+
+| Season | Effect | Where it is applied |
+| --- | --- | --- |
+| spring | marsh move cost 5; +1 person every 5th day (no shortage) | `stepCost()`, `endTurn()` |
+| summer | sight +1 | `sightFrom()`, `campSight()` |
+| autumn | — (seasonal events to come) | |
+| winter | wood upkeep ×3; shallows cost 2 to enter; ice cannot be camped on | `woodUpkeep()`, `stepCost()`, `campBlocker()` |
+
+`stepCost()` is the single place movement cost is decided, seasons included; the
+tile panel, pathfinding and the reach shading all read it.
+
+Events can test the season through the `season` metric (0–3); write conditions
+with `inSeason('winter')`, never the bare number.
+
+`effectsOf(id)` is the list of a season's rules shown to the player — in the
+season tooltip and in the season-change notice. Seasons with no rules get a
+fallback line, so neither is ever empty.
+
+**Ice cannot be camped on** for free: shallows are impassable in the terrain
+table, and `campBlocker()` already rejects impassable tiles.
+
+### Stranded on thawed water
+
+A party standing on a shallow outside winter is in the water.
+
+- `party.stranded` is set at the start of each turn. While it is true,
+  `stepCost()` lets the party enter other shallows for 2 moves. Ocean and
+  mountains stay closed — otherwise a stranded party could walk across the sea.
+  Which way to go is the player's call; nothing in the code judges "towards land".
+- At the end of every turn still on water: `strandedPenalty()` takes 0–2 people
+  and 10–30% (rounded up) of every positive stock, rolled on `state.rngState` so a
+  save replays the same loss. It is a rule, not an event — event effects are fixed
+  numbers, and there is no choice to make.
+
+## Camp sites, buildings and gear
+
+Works are split by **where they live**:
+
+| | Lives on | Survives breaking camp | Table |
+| --- | --- | --- | --- |
+| Gear — tools (counted) and party gear (one each) | `state.works` | travels | `TOOLS`, `GEAR` |
+| Buildings | `map.sites[i].buildings` | stays at the site | `BUILDINGS` |
+
+Neither needs any carry-over logic, and that is the point: gear is already on the
+party, buildings are already on the site, and the camp finds its site by
+position. **Never copy buildings between the camp and a site.**
+
+**Sites.** `buildBuilding()` creates a site at the camp on the first building;
+a camp that never built anything leaves no site. `demolish()` removes a site once
+its last building goes. A visit means camping there: `makeCamp()` and every
+camped `endTurn()` set `lastVisit`. A site is removed when
+`turn − lastVisit ≥ SITE_LIFETIME` (160 turns), with no warning.
+
+**Limits.**
+
+| | Value | Rule |
+| --- | --- | --- |
+| `MAX_SITES` | 5 | blocks the first building at a new place, never making camp |
+| `BASE_SLOTS` / `EXPANDED_SLOTS` | 3 / 6 | `expansion` opens the extra slots |
+| `Building.slot` | per building | expansion, crew1, crew2 take no slot |
+| `Building.requires` | per building | must stand at the same site |
+| `DEMOLISH_REFUND` | 0.5 | rounded down, then through `clampToCap()` |
+
+`buildBlocker()` returns `noCamp`, `built`, `requires`, `slots`, `siteLimit` or
+`cost`. `demolishBlocker()` returns `needed` when another building requires this
+one, or when it is the expansion and more than 3 slots are in use.
+
+**Buildings only work at their site.** `hasBuilding()` looks at the current
+site, so a store's +40 and −1 food, a watchtower's sight and a workshop's
+crafting all switch off when you camp elsewhere. `breakCampLoss()` says what a
+lower cap would throw away when you leave; the UI confirms before `breakCamp()`,
+which clamps and records the loss in `lastWasted`.
+
+**Crafting** — tools and party gear alike — needs a workshop at the current site.
+
+## UI overlays
+
+| | Blocks input | Lives in | Used for |
+| --- | --- | --- | --- |
+| Event dialog | yes | `EventDialog.jsx` | events: the player must choose |
+| Confirmation | yes | `Overlays.jsx` | breaking camp that throws goods away, demolishing |
+| Notice | **no** | `Overlays.jsx` | a season change, a loss to the thaw |
+
+Notices have `pointer-events: none` and fade after 4.5 s (`NOTICE_MS` in the hook,
+matched by the CSS animation). On desktop they sit centred above the map; on
+mobile they are **children of the status strip**, positioned from its bottom
+edge — the strip's height changes with the number of resource rows, and a fixed
+`top` once put them on top of it. While a confirmation is open, keyboard
+shortcuts are ignored.
+
+The season badge is a `<button>` styled as text. Its tooltip shows on `:hover`
+inside `@media (hover: hover)` and on tap via an `is-open` class. Its selectors
+are written as `.hexgame button.hg-season…` to outrank the global
+`.hexgame button:hover:not(:disabled)` (0,3,1).
 
 ## Rendering
 
 `drawScene()` in `draw.ts`, back to front:
 
 1. Terrain fills, batched into one `Path2D` per terrain (and a second set,
-   overlaid with `COLORS.memory`, for explored-but-not-visible tiles).
+   overlaid with `COLORS.memory`, for explored-but-not-visible tiles). In winter
+   shallows go into an extra `ice` batch.
 2. Grid lines (`s ≥ 11`).
-3. Terrain glyphs, then deposit marks, then deposit dots.
-4. Reach shading while roaming.
-5. Camp site: crew bars, progress bars, the camp ring and `⌂`; or the party dot.
-6. Hover and selection outlines.
+3. Site frames (`s ≥ 9`).
+4. Terrain glyphs, then deposit marks, then deposit dots.
+5. Reach shading while roaming.
+6. Camp: crew bars, progress bars, the camp ring and `⌂`; or the party dot.
+7. Hover and selection outlines.
 
 `s` is the on-screen hex size (centre to vertex) in pixels. Layout inside a hex
 is the `SLOT` table, in units of `s`:
@@ -195,6 +316,7 @@ is the `SLOT` table, in units of `s`:
 | deposit dot | +0.24 | radius 0.1 | `9 ≤ s < 20` |
 | progress bar | +0.44 | 0.62 × 0.07 | `s ≥ 12`, worked tiles |
 | crew bars | inset 0.8 | middle 70% of each edge | `s ≥ 12`, work tiles with crew |
+| site frame | inset 0.78 | grey hexagon outline | `s ≥ 9`, not on the current camp or a tile with crew bars |
 
 Work tiles with nobody on them get a faint outline instead of bars, and so do all
 work tiles below `s = 12`.
@@ -207,6 +329,14 @@ order: geared person (`i < equipped`), bare person (`i < crew`), open slot
 not where they could be: drawing the full set on empty tiles filled the whole
 ring with bars the moment you camped, and the tiles actually being worked
 stopped standing out.
+
+**Ice.** Winter shallows draw as `ICE` (fill `#35505c`, glyph `=`), and in the
+last 3 turns of winter as cracking ice (`≠`). Ice has to look different from
+water at a glance — it is the player's only cue that a route is open.
+
+**Site frames** are skipped on tiles showing crew bars because the bars cover
+only the middle of each edge; a frame underneath would show through the corner
+gaps.
 
 Glyphs come from the system monospace stack; `scripts/` has no glyph check, so
 test a new symbol in the browser (compare `measureText` against `'￿'`).
@@ -222,6 +352,7 @@ test a new symbol in the browser (compare `measureText` against `'￿'`).
 | `deposit` | one char per tile: `.` none, `'A' + DEPOSIT_CODES.indexOf(id)`, **lower case = not surveyed** |
 | `progress` | sparse `{ index: value }` |
 | `origin` | the spawn point |
+| `sites` | `[{ at, buildings, lastVisit }]`, unknown buildings and empty sites dropped on load |
 
 About 6KB in total. `TERRAIN_CODES` and `DEPOSIT_CODES` are append-only.
 
@@ -230,7 +361,10 @@ About 6KB in total. `TERRAIN_CODES` and `DEPOSIT_CODES` are append-only.
 (`fillStock`, `fillTools`), a missing deposit column means no deposits, a
 missing origin falls back to the party position, an all-upper-case deposit column
 (saved before surveying existed) reads as all surveyed, and over-cap crews are
-trimmed. Bump `v` only when old data would be *misread*.
+trimmed. Saves from before the gear/building split have `works.facilities`:
+`readWorks()` moves store, workshop and watchtower into a site at the party's
+position (so a save made while camped keeps working), and jars and pack frames
+into `works.gear`. Bump `v` only when old data would be *misread*.
 
 Every load error is a `SaveError` carrying `{ en, zh }`.
 
@@ -239,7 +373,7 @@ Every load error is a `SaveError` carrying `{ en, zh }`.
 `events.ts` is a table of `{ id, text, trigger: Rule[], choices[], once? }`.
 
 - A rule is a list of conditions on metrics (`turn`, `people`, `idle`, `camped`,
-  and the six resources), AND-ed; rules are OR-ed and the **highest** matching
+  `season`, and the six resources), AND-ed; rules are OR-ed and the **highest** matching
   chance applies.
 - Triggers are judged once on a snapshot at the turn boundary; a choice's
   `require` is judged live.
@@ -252,11 +386,13 @@ Every load error is a `SaveError` carrying `{ en, zh }`.
 | File | Tests | Covers |
 | --- | --- | --- |
 | `hex.test.ts` | 9 | coordinate conversions, rings, rounding, reach |
-| `works.test.ts` | 15 | tool handout order, primary-yield matching, facilities, per-tile cap |
+| `works.test.ts` | 15 | tool handout order, primary-yield matching, buildings, per-tile cap |
 | `economy.test.ts` | 7 | storage cap on every path that adds resources, percentage effects |
 | `events.test.ts` | 23 | conditions, OR rules, queueing, every event can fire and never traps |
 | `deposits.test.ts` | 13 | gradient, placement, yield ceiling, surveying, harvest, glyphs |
 | `save.test.ts` | 11 | round trip, encodings, old-save compatibility |
+| `seasons.test.ts` | 15 | calendar, each season's effect, ice, the thaw and its penalty |
+| `sites.test.ts` | 18 | sites appearing and disappearing, slots, prerequisites, demolition, site limit, buildings only at their site, gear, old-save migration |
 | `i18n.test.ts` | 4 | every player-facing string has both languages |
 | `camera.test.ts` | 8 | pan, zoom, clamping, hit-testing |
 
@@ -312,9 +448,15 @@ its condition holds.
 
 ### Current measurements (`npm run balance`, 40 seeds)
 
+Measured with seasons, camp sites and the base crew cap of 2 in place. Section 5
+camps at the start and **never relocates**, so it says nothing about deposits or
+about sites beyond the first.
+
 **Payback.** Stone tools 9 turns; iron tools 6; the store 16. The workshop
 (10.6 person-turns) is a one-off gate: a single hoe really pays back in 30 turns,
-four hoes in 14.5.
+four hoes in 14.5. The other buildings return capacity rather than output
+(slots, crew per tile, radius), so labour pricing cannot give them a payback; they
+need a policy that actually fills the capacity.
 
 **Start camp.** The start rings are mostly grassland (median 4–5 grass tiles).
 Carrying capacity, median / worst 10%:
@@ -330,43 +472,47 @@ that. **Only 17 of 40 start rings contain any stone**, so in 58% of runs nothing
 at all can be built without relocating.
 
 **Migration.** Shortest paths cost 1.45 moves per hex: 2.8 hexes a turn, 3.4
-with pack frames. On a full base store (40 food): 3 people can cover 33 hexes,
-8 people 11, 12 people 6. Storage and pack frames matter only for big parties.
+with pack frames. The store no longer travels, so the road cap is 40, or 80 with
+clay jars. On 40 food: 3 people can cover 33 hexes, 8 people 11, 12 people 6;
+with jars, 69, 25 and 14.
 
 **Sixty turns camped at the start (Monte Carlo, events on):**
 
 | Cap | People at 15 / 30 / 45 / 60 | Idle | Shortage turns | Runs that lost someone |
 | --- | --- | --- | --- | --- |
-| 2 | 7 / 12 / 13 / 15 | 21% | 0.1 | 8% |
-| 3 | 7 / 15 / 19 / 21 | 16% | 0.1 | 13% |
-| 5 | 7 / 15 / 22 / 30 | 13% | 0.0 | 23% |
+| 2 | 6 / 12 / 13 / 16 | 18% | 0.1 | 23% |
+| 3 | 6 / 12 / 19 / 22 | 14% | 0.1 | 15% |
+| 5 | 6 / 12 / 19 / 25 | 11% | 0.0 | 23% |
 
-With events off, population is 4 / 6 / 7 / 9 at any cap — natural growth only.
-At cap 5, **wanderers bring 19.6 people per run against 6 from natural growth**.
+At cap 2, wanderers bring 8.7 people per run against 4 from natural growth. Hard
+winter fires 4.2 times per run.
+
+**With events off** the party is 3 / 3 / 4 / 7 at any cap, and the workshop goes
+up on turn 53 and the store on turn 50 (in the 17 runs with stone at all). Before
+seasons those were turns 19 and 15.
 
 ### What the numbers say
 
-1. **Opening pressure is real, and then it stops.** 12 food for 3 people is 4
-   turns of runway, so you must camp quickly. Once camped on the start ring,
-   shortage turns are effectively zero — each farmer feeds two people at every
-   party size, so upkeep never outgrows production. Survival pressure does not
-   rise over time; nothing pushes the player out of the starting camp except the
-   pull of deposits.
-2. **Wanderers dominate population growth** (3.3× natural at cap 5). The intent
-   was that decisions and events drive growth; in practice one event does.
-3. **Stone decides whether the first 20 turns have a goal.** Without stone in the
-   start ring there is nothing to build until you move. That could be a good push
-   outward, but nothing on screen says so.
-4. **Cap 2 is the one lever that gives a camp a ceiling you actually reach.** At
-   cap 5 the start camp supports about 45 people, which no run reaches, so every
-   site is as good as any other; at cap 2 the camp is full around turn 30. From
-   then on *which* site you hold matters — a slot on shallows feeds 3, on
-   grassland 2 — and iron tools, more slots or a better site are the ways up.
-   This is why `BASE_CREW_CAP` is 2. It is not meant to push the player out:
-   settling for good is a supported way to play.
-5. **Cap 2 slows deposit work.** A vein pays at most once per turn without
+1. **Winter is real pressure.** Runs at cap 2 that lost someone went from 8% to
+   23% when seasons arrived. The flat survival curve now has a tooth in it.
+2. **The first year locks a party of three.** The run starts in autumn, winter
+   comes on turn 21, and at three times the wood two of the three people must cut
+   wood all winter. Nobody is free to quarry, and natural growth does not happen
+   until spring on turn 41 — so without events, nothing gets built before turn
+   ~50. The first 40 turns now lean on wanderers.
+3. **Natural growth halved**: 4 a year (spring only) against 8 per 80 turns
+   before.
+4. **Wanderers dominate population growth** even more than before.
+5. **Stone decides whether the first year has a goal.** Without stone in the
+   start ring there is nothing to build until you move, and nothing on screen
+   says so.
+6. **Cap 2 still gives a camp a ceiling you actually reach**: about 12 people by
+   turn 30. From then on *which* site you hold matters — a slot on shallows feeds
+   3, on grassland 2. It is not there to push the player out: settling for good is
+   a supported way to play.
+7. **Cap 2 slows deposit work.** A vein pays at most once per turn without
    tools: 12 clay for jars is 6 turns on one pit, 3 iron tools about 6 turns.
-6. **Spoilage is a second cap.** Food above 30 rots at 18% a turn, so the 30–40
+8. **Spoilage is a second cap.** Food above 30 rots at 18% a turn, so the 30–40
    band is taxed about 2 food a turn — overlapping with what the storage cap
    already does.
 
@@ -389,186 +535,32 @@ These are settled with the designer and shape everything below.
   for the system. New ones should lean on proportional effects
   (`stockPct`, `peoplePct`) so a rich camp faces bigger trouble than a lean
   party. Check each new event's expected value in `npm run balance` section 5.
+- **Seasons change systems, not numbers.** Each season changes something
+  different (movement, sight, growth, fuel), each effect is on or off, and season
+  effects on tile yields are avoided so the player never has to recompute income.
 
-### Decided, waiting to be built
+### Content to fill
 
-Numbers in this section are provisional; the shapes are agreed.
+The mechanics exist; these are placeholders waiting for real content.
 
-- **Gear and buildings, two kinds of works, split by where they live.**
-  - **Gear** travels with the party: every tool (counted, one per person) plus
-    the party-wide clay jars and pack frames. Everything you *craft* is gear —
-    "crafting" and "gear" are the same thing, so the camp panel has one tab for
-    it. Data stays on `state.works`.
-  - **Buildings** belong to a **camp site** — a place on the map — and stay
-    there when the party leaves. Today's **store, workshop and watchtower become
-    buildings**: they are houses in the fiction, and were only portable because
-    there was no fixed category when they were added. Come back, camp on the same tile, and they
-    work again. This is what makes seasonal camps possible: a summer camp and a
-    winter camp, each built up, visited in turn.
-  - A building's effect covers the whole camp ring, never a single tile, so the
-    map gains no per-tile icons. A site shows as one marker on the map.
-  - **Slots: 3 per site to start.** One special building — it takes no slot of
-    its own — opens the site to **6**. With store, workshop, watchtower, crew
-    expansion and radius expansion already five candidates, a new site is a
-    choose-three; the slot opener is the first goal of any site meant to last,
-    and a long-held site ends up with nearly everything. That is the reward for
-    staying.
-  - **Crew expansion and radius expansion are buildings.** `crewCap()` and
-    `workRadius()` read the current site's buildings; with no camp, the survey
-    radius is the base 1. The two still share `workRadius()`, so the
-    "every workable tile is surveyed" invariant holds unchanged.
-  - **Map marker: a slightly smaller grey hexagon inset inside the site tile** —
-    the look the deposit ring had before deposits moved to the glyph slots, now
-    free to reuse. It leaves the terrain glyph and deposit slot alone, and draws
-    from `s ≥ 9`, so the same marker works when zoomed out to scan. Two cases hide
-    it:
-    - the tile is showing crew bars (camped next to the old site with people on
-      it). The bars only cover the middle 70% of each edge, so drawing the frame
-      underneath would leak grey bits through the corner gaps; it is simply not
-      drawn, and reappears once the bars go.
-    - the party is camped on the site itself — the bright `⌂` and ring already
-      say it.
-  - **No building levels.** A stronger version of a building is a separate
-    building that **requires** the weaker one (crew expansion II requires crew
-    expansion I).
-  - **Demolishing** is allowed and refunds 50% of the cost, rounded down. The
-    refund goes through `clampToCap()` like every other way stock is added — a
-    full store throws the excess away, or demolition becomes a way around the cap.
-  - **A building that another standing building depends on cannot be
-    demolished.** The slot opener is the first case: slots 4–6 depend on it, so it
-    stays while any of them is occupied.
-  - **A visit means camping on the site.** Passing by does not count; every camped
-    turn refreshes it, so an inhabited site never collapses.
-  - **A camp that never built anything leaves no site** — after breaking camp the
-    tile is ordinary ground. A site exists from its first building, and a site
-    whose buildings are all demolished stops existing.
-  - **At most 5 sites (provisional).** The limit blocks **the first building at a
-    new place**, not making camp: camping creates no site, and blocking it would
-    leave a party with five sites unable to work anywhere else. To free a place,
-    wait for a site to collapse or demolish everything at one. The camp panel
-    shows `sites 3/5`, and the build button says why when it is blocked.
-  - **A site collapses after 2–3 years (160–240 turns) without a visit, and simply
-    disappears — no warning, no ruin.** Seasonal circuits stay standing; a trail
-    of one-off camps clears itself. It also bounds save size.
-  - Design rule: a building pays off once the total time spent at that site —
-    across every visit — exceeds `cost ÷ gain per turn`.
-  - Consequences of moving store, workshop and watchtower to buildings:
-    - Crafting needs a workshop **at the current site**. Gear already made works
-      anywhere.
-    - The store's storage +40 and food upkeep −1 apply only while camped at its
-      site. On the road, storage is the base 40 plus clay jars — **clay jars
-      become the migration item**, which fits clay's role (storage). The
-      migration-range table in the balance model must be recomputed: large
-      parties now need jars, not a store, to travel far.
-    - Breaking camp at a site whose store raises the cap drops the cap. Whatever
-      no longer fits is thrown away, after a confirmation that names the amounts
-      ("breaking camp throws away 23 food"). Keeping goods in the store for the
-      next visit is a possible later feature; it needs a per-site stock and
-      deposit/withdraw UI.
-    - Watchtower sight +1 applies only at its site.
-    - Old saves: store, workshop and watchtower in `works.facilities` move into a
-      new site at the party's current position on load.
-    - The settled rule in CLAUDE.md, "facilities and tools hang off the party",
-      becomes "gear hangs off the party, buildings hang off the site". The reason
-      it exists — no stash-and-restore step — still holds for both.
-  - Camp panel: two tabs, **Buildings** and **Gear** (gear is where crafting
-    happens; tools and party gear are two groups inside it).
-- **Data model for sites: buildings live on the site, the camp only points at
-  it.** `map.sites: { at, buildings[], lastVisit }[]`; `camp.site` refers to one.
-  Breaking camp nulls `camp` as today and the site simply stays. Making camp on a
-  tile that has a site attaches to it; a site is created by the first building,
-  so camps that never built anything leave no record. **Never copy buildings
-  between the camp and the site** — the reason gear lives on the party (no
-  stash-and-restore step where a field gets forgotten) applies here too.
-  Cost: a lookup by position when camping and a few markers per frame; about 50
-  bytes per site in a save, so even 100 sites is about 5KB on top of today's 6KB.
-- **Seasons.** 20 turns per season, an 80-turn year, and the run **starts in
-  autumn** so the first winter arrives once the first camp is standing. A year
-  must be long enough that a relocation (about 4–5 turns: break camp, 2–3 turns
-  of travel, settling in) is no more than a quarter of a season. Each season
-  changes a different system, and every effect is on/off rather than a number
-  the player has to multiply:
-  - spring: marsh move cost 3 → 5 (not impassable, so nobody is stranded in a
-    marsh); natural growth happens in spring
-  - summer: sight +1
-  - autumn: seasonal events
-  - winter: fire wood ×3; **all shallows freeze and can be walked on**; ice
-    cannot be camped on
-  - a `season` metric for event conditions
-  - HUD, desktop: a row under the turn counter, `季节  ❄ 冬 7/20`. Mobile: on
-    the right of the top strip's first line, which only holds the turn and the
-    roaming/camped state today. Same `7/20` (elapsed / length) in both — one
-    thing to learn.
-  - The season character and its icon are coloured per season, avoiding the
-    three colours that already mean something (accent green = income and geared
-    crew, `#ff8b6b` = shortage, `#ffc98c` = idle): spring `#f0a6c8`, summer
-    `#b5d86a`, autumn `#e0a24e`, winter `#8fc8f0`. **Agreed.**
-  - **Season icons** — flower, sun, leaf, snowflake — drawn before the season
-    character at 1em. Source: [`docs/season-icons.svg`](season-icons.svg), a
-    16×16 grid, all `currentColor`, so setting `color` on the element colours it.
-    No masks and no ids inside the shapes, so they can be inlined repeatedly;
-    partial fills use group opacity so overlapping petals do not darken. Checked
-    at 13px: all four tell apart. The flower petals sit at 75% — at 55% they read
-    grey-purple on the dark panel instead of pink. These are the first SVGs in
-    the HUD (everything else is a text glyph): emoji-capable code points such as
-    `☀` and `❄` can render as colour emoji and ignore CSS colour, which is why
-    they are drawn rather than typed.
-  - Hovering (desktop) or tapping (mobile) the season shows its active effects,
-    e.g. "fire wood ×3 · shallows frozen".
-  - **A season change is announced by a non-blocking notice**, not an event
-    dialog: it shows the new season and its effects, never stops End turn, and
-    fades on its own. It must not take pointer events over the map, and stays
-    within the game's z-index ≤ 2 (see the host contract in CLAUDE.md).
-  - Ice shows cracks in its last turns.
-
-  A 20-turn winter at ×3 burns 60 wood against a base cap of 40, so a winter
-  cannot be sat out on stockpile alone: a winter camp needs forest, or more
-  storage. That falls out of the numbers; nothing else enforces it.
-- **Stranded on thawed water.** When the ice melts, a party still on it is on an
-  impassable tile.
-  - A party that **starts its turn** on a thawed shallow may enter other thawed
-    shallows that turn; any other party may not. The exemption covers thawed
-    shallows only — never ocean or mountains, or a stranded party could walk
-    across the sea or over a range. Wading costs 2 moves per tile (impassable
-    tiles have no move cost today; it needs one).
-  - At the **end** of each turn still on such a tile: lose 0–2 people and 10–30%
-    of every resource, rounded up, rolled on `state.rngState`. A party that walks
-    ashore on the first turn after the thaw pays nothing. Small parties die
-    faster than big ones, which is intended.
-  - It is a rule in `endTurn`, like starvation, not an event: event effects are
-    fixed numbers and it offers no choice.
-
-- **A facility that raises the per-tile cap.** Hook: `crewCap()`. Cap ceiling is 6.
-  Cost and resource not decided yet.
-- **A facility that widens the work and survey radius.** Hook: `workRadius()`.
-  Radius 2 is 18 work tiles — at cap 6 that is 108 slots, triple anything today,
-  so this belongs late and should be expensive. Cost not decided.
+- **Buildings.** The list, what each does, and every cost. Today's costs are
+  stand-ins, including crew expansion, crew expansion II, outer grounds and camp
+  expansion.
+- **Autumn.** It has no effect yet; seasonal events were the plan.
+- **Events.** More of them, using `inSeason()` and proportional effects.
 
 ### Needs a decision
 
-- What the two facilities above cost, and in which resources. (Parked by choice.)
-  Also whether they become gear or buildings — as buildings they reward
-  holding a site, as gear they travel.
-- The list of buildings and what each does (content; the slot mechanism is
-  agreed).
-- Prerequisite buildings, awaiting a yes:
-  - after building crew expansion II, does crew expansion I keep its slot?
-    Proposed: yes — both stand, each takes a slot, effects add (+2, +2). The cost
-    of going further is a slot, which is what "no levels" buys. A fully grown
-    site then holds exactly six: crew I, crew II, radius, store, workshop,
-    watchtower, plus the slot opener outside the count.
-  - a prerequisite must stand at the same site (proposed: yes — buildings belong
-    to a site, so a cross-site requirement means nothing).
-- Selecting a site tile, proposed: outline its work ring faintly and list its
-  buildings in the tile panel. Footprints are never drawn otherwise, so nearby
-  sites do not pile up rings.
-- Whether a site collapses after 2 years or 3.
-- The exact start turn within autumn — measure once seasons exist.
+- What the buildings cost, and in which resources.
+- Whether a site falls after 2 years or 3 (2 is implemented).
+- Where in autumn the run starts — see "the first year locks a party of three".
 - Whether the start ring should be guaranteed a stone source, or the lack of one
   left as a push to relocate — and if the latter, how the game tells the player.
 - Whether `?` should be genuinely uncertain. Today a `?` on hills is always iron
   and on forest or tundra always hide; only grassland is ambiguous. More deposit
   types, or overlapping terrains, would fix it.
+- Selecting a site tile could outline its work ring faintly (proposed, not built;
+  the building list in the tile panel is built).
 
 ### UI follow-ups
 
@@ -576,16 +568,24 @@ Numbers in this section are provisional; the shapes are agreed.
   income, are already crowding the mobile top strip. Part of the same job:
   whether to show **projected** next-turn income instead of last turn's, so
   season effects never have to be computed by hand.
+- Keeping goods in a site's store for the next visit, instead of throwing away
+  what no longer fits when breaking camp. Needs a per-site stock and a
+  deposit / withdraw UI.
 
 ### Balance follow-ups
 
-- Wanderers: 3 people at 12% a turn outweighs natural growth 3:1. Fewer people,
-  a lower chance, or a condition (only when food is plentiful).
+- The first winter: with three people and wood ×3 there is no free labour until
+  spring. Options include starting earlier in autumn, a smaller winter factor in
+  the first year, or a bigger starting stock of wood.
+- Natural growth: spring-only halved it. Decide whether that is the intent.
+- Wanderers: 3 people at 12% a turn outweigh natural growth 2:1 at cap 2 and
+  more at higher caps. Fewer people, a lower chance, or a condition.
 - Retune deposit yields and costs for cap 2: a single vein is slow to exploit.
 - Spoilage and the storage cap do overlapping jobs.
 - *Idle talk* can fire on turn 2 if the player camps and ends the turn without
   assigning anyone (20%, costs a person or 8 food) — harsh for a first turn.
-- Re-run `npm run balance` after any change to yields, costs, upkeep or events.
+- Re-run `npm run balance` after any change to yields, costs, upkeep, seasons or
+  events.
 
 ### Roadmap
 
@@ -598,10 +598,10 @@ Numbers in this section are provisional; the shapes are agreed.
 
 - `sim.ts` uses a naive policy and always picks the first affordable event choice;
   `balance.ts` has the better policy. Merge them, or retire `sim.ts`.
-- `balance.ts` never relocates, so it cannot measure anything about deposits
-  beyond distance. A relocation policy would let it.
-- 21 pre-existing oxlint warnings: 18 × `react(refs)` in `Game.jsx` (refs read
-  during render), and in `useHexGame.js` one mutated hook argument and two
-  `game.version` entries in memo deps that the linter calls unnecessary — they
-  are what makes the memo recompute after an in-place mutation, so they cannot
-  simply be removed.
+- `balance.ts` never relocates, so it cannot measure deposits, sites or seasonal
+  camps. A relocation policy is the next thing it needs.
+- 27 oxlint warnings: 24 × `react(refs)` in `Game.jsx` (the hook's return value
+  carries refs, so every `g.x` read during render is flagged), and in
+  `useHexGame.js` one mutated hook argument and two `game.version` entries in
+  memo deps that the linter calls unnecessary — they are what makes the memo
+  recompute after an in-place mutation, so they cannot simply be removed.

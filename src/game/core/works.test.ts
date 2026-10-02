@@ -15,13 +15,13 @@ import {
   breakCamp,
   crewCap,
   enforceCrewCap,
-  buildFacility,
+  buildBuilding,
   campSight,
   craftBlocker,
   craftTool,
   createGame,
   endTurn,
-  hasFacility,
+  hasBuilding,
   makeCamp,
   toolAllocation,
   unassign,
@@ -45,7 +45,7 @@ function camped(): GameState {
   g.stock.wood = 999;
   g.stock.stone = 999;
   g.party.people = 8;
-  buildFacility(g, 'workshop');
+  buildBuilding(g, 'workshop');
   return g;
 }
 
@@ -174,22 +174,37 @@ test('面板显示的速度就是结算时用的速度', () => {
   assert.equal(advanced, shown, '进度实际推进量和面板上写的对不上');
 });
 
-test('拔营再扎营，设施和工具都还在', () => {
-  // 这是刻意为游戏性做的取舍：设施挂在队伍上不挂在营地上，
-  // 所以"保留"是模型的自然结果，不是一条要单独维护的搬运逻辑
+test('拔营后装备跟着走，建筑留在原地，回来扎营又生效', () => {
+  // 装备挂在队伍上，建筑挂在营地址上，营地和营地址靠位置相认 ——
+  // "保留"和"回来生效"都是数据模型的自然结果，没有任何搬运逻辑
   const g = camped();
-  buildFacility(g, 'workshop');
-  buildFacility(g, 'watchtower');
+  buildBuilding(g, 'watchtower');
   craftTool(g, 'axe');
+  const home = { ...g.camp!.at };
 
   breakCamp(g);
   assert.equal(g.camp, null);
-  assert.ok(hasFacility(g, 'workshop'), '拔营后工棚没了');
   assert.equal(g.works.tools.axe, 1, '拔营后斧头没了');
+  assert.equal(hasBuilding(g, 'workshop'), false, '没扎营时不该用得上任何建筑');
+  assert.equal(g.map.sites.length, 1, '拔营后营地址不该消失');
 
+  // 换个地方扎营：用不上原来那处的建筑
+  const elsewhere = workableTiles(camped()).find((h) => {
+    const t = tileAt(g.map, h)!;
+    return TERRAIN[t.terrain].moveCost != null;
+  })!;
+  g.party.at = elsewhere;
+  g.party.moves = 4;
   makeCamp(g);
-  assert.ok(hasFacility(g, 'watchtower'));
-  assert.equal(g.works.tools.axe, 1);
+  assert.equal(hasBuilding(g, 'watchtower'), false, '在别处扎营却用上了原来的了望塔');
+
+  // 回到原处：建筑重新生效
+  breakCamp(g);
+  g.party.at = home;
+  g.party.moves = 4;
+  makeCamp(g);
+  assert.ok(hasBuilding(g, 'watchtower'), '回到原处扎营，了望塔没有生效');
+  assert.ok(hasBuilding(g, 'workshop'));
 });
 
 test('拔营会清空派工，工具回到未分配状态', () => {
@@ -213,7 +228,7 @@ test('制作要先有工棚', () => {
   assert.equal(craftBlocker(g, 'axe'), 'locked');
   assert.equal(craftTool(g, 'axe'), false, '没工棚时不该造得出来');
 
-  buildFacility(g, 'workshop');
+  buildBuilding(g, 'workshop');
   assert.equal(craftBlocker(g, 'axe'), null);
   assert.equal(craftTool(g, 'axe'), true);
 });
@@ -221,7 +236,7 @@ test('制作要先有工棚', () => {
 test('了望塔加视野，仓库减食物消耗', () => {
   const g = camped();
   const sight0 = campSight(g);
-  buildFacility(g, 'watchtower');
+  buildBuilding(g, 'watchtower');
   assert.equal(campSight(g), sight0 + 1);
 
   const plain = createGame({ seed: 'thea' });
@@ -235,17 +250,17 @@ test('了望塔加视野，仓库减食物消耗', () => {
   stored.party.people = 5;
   stored.stock.wood = 999;
   stored.stock.stone = 999;
-  buildFacility(stored, 'store');
+  buildBuilding(stored, 'store');
   endTurn(stored);
 
   assert.equal(stored.lastIncome.food, withoutStore + 1, '仓库应该少吃一份粮');
 });
 
-test('每种设施只能建一次', () => {
+test('每种建筑在一处营地址只能建一座', () => {
   const g = camped();
-  assert.equal(buildFacility(g, 'store'), true);
-  assert.equal(buildFacility(g, 'store'), false);
-  assert.equal(g.works.facilities.filter((f) => f === 'store').length, 1);
+  assert.equal(buildBuilding(g, 'store'), true);
+  assert.equal(buildBuilding(g, 'store'), false);
+  assert.equal(g.map.sites[0].buildings.filter((b) => b === 'store').length, 1);
 });
 
 test('派工顺序里的人数和 crew 始终一致', () => {

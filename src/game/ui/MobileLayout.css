@@ -80,3 +80,8 @@
    */
   background: #05090b;
 }
+
+/* 季节靠第一行最右边：那一侧本来就空着 */
+.hexgame--narrow .hg-m-season {
+  margin-left: auto;
+}

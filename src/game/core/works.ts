@@ -1,29 +1,53 @@
 /**
- * 设施与工具表。
+ * 建筑、装备与工具表。
  *
- * 这两样都挂在**队伍**上而不是营地上（见 state.ts 的 works 字段）：拔营时
- * 营地置 null，设施和工具跟着队伍走。所以"拔营再扎营后保留"不是一条特例
- * 规则，而是数据模型的自然结果 —— 不需要任何"拔营时先把设施存起来"的搬运
- * 逻辑，那种地方正是以后会漏掉某个字段的位置。
+ * 按**东西放在哪**分成两类：
  *
- * 叙事上把它们理解成随队工事和行装：拆了棚子，把木料和工具装上车带走。
+ *   建筑  钉在地图上的营地址里（见 map.ts 的 sites）。拔营后留在原地，回来在
+ *         同一格扎营就重新生效。仓库、工棚、了望塔在设定上本来就是房子 ——
+ *         它们早先能随队走，只是因为那时还没有"固定建筑"这一类。
+ *   装备  跟着队伍走（state.works）：工具按人数计，储藏瓮和背架全队一份。
+ *         **凡是"制作"出来的都是装备**，所以营地面板只有"建筑 / 装备"两页。
+ *
+ * 两类都不需要任何"拔营时先存起来、扎营时再取回来"的搬运逻辑：装备本来就在
+ * 队伍身上，建筑本来就在营地址上，营地只是通过位置找到它。那种搬运步骤
+ * 正是以后会漏掉某个字段的地方。
  */
 import type { ResourceId } from './terrain.ts';
 
 export type Cost = Partial<Record<ResourceId, number>>;
 
-// ---------------------------------------------------------------- 设施
+// ---------------------------------------------------------------- 建筑
 
-export type FacilityId = 'store' | 'workshop' | 'watchtower' | 'jars' | 'packs';
+export type BuildingId =
+  | 'store'
+  | 'workshop'
+  | 'watchtower'
+  | 'expansion'
+  | 'crew1'
+  | 'crew2'
+  | 'outskirts';
 
-export interface Facility {
+export interface Building {
   label: { en: string; zh: string };
   desc: { en: string; zh: string };
   cost: Cost;
+  /**
+   * 占不占建筑槽位。营地扩建和两级扩编不占 —— 前者本身就是开槽位的，
+   * 后两者是营地规模的一部分。改成占槽位只需要动这一个字段。
+   */
+  slot: boolean;
+  /** 前置建筑：必须**在同一处营地址**已经建好。跨营地的前置没有意义 */
+  requires?: BuildingId;
 }
 
-/** 每种设施只能有一座，效果直接写死在读它的地方，不做通用的加成管线 */
-export const FACILITIES: Record<FacilityId, Facility> = {
+/**
+ * 一处营地址最多几种建筑，每种一座。效果直接写死在读它的地方
+ * （crewCap、workRadius、stockCap……），不做通用的加成管线。
+ *
+ * 造价都是**占位数字**，等机制跑起来以后用 npm run balance 量回收期再定。
+ */
+export const BUILDINGS: Record<BuildingId, Building> = {
   store: {
     label: { en: 'Store', zh: '仓库' },
     desc: {
@@ -31,25 +55,87 @@ export const FACILITIES: Record<FacilityId, Facility> = {
       zh: '储量上限 +40 · 每回合食物消耗 −1',
     },
     cost: { wood: 12, stone: 6 },
+    slot: true,
   },
   workshop: {
     label: { en: 'Workshop', zh: '工棚' },
-    desc: { en: 'Unlocks crafting', zh: '解锁工具制作' },
+    desc: { en: 'Gear can be made here', zh: '可以在这里制作装备' },
     cost: { wood: 14, stone: 10 },
+    slot: true,
   },
   watchtower: {
     label: { en: 'Watchtower', zh: '了望塔' },
     desc: { en: 'Camp sight +1', zh: '营地视野 +1' },
     cost: { wood: 10, stone: 8 },
+    slot: true,
   },
-  // 黏土管储量。和仓库叠加，所以"找到黏土"的回报是背包直接再大一倍
+  expansion: {
+    label: { en: 'Camp expansion', zh: '营地扩建' },
+    desc: { en: 'Building slots 3 → 6 · takes no slot', zh: '建筑槽位 3 → 6 · 不占槽位' },
+    cost: { wood: 24, stone: 16 },
+    slot: false,
+  },
+  crew1: {
+    label: { en: 'Larger crews', zh: '扩编' },
+    desc: { en: 'Crew per tile +2 · takes no slot', zh: '每格人数上限 +2 · 不占槽位' },
+    cost: { wood: 16, stone: 10 },
+    slot: false,
+  },
+  crew2: {
+    label: { en: 'Larger crews II', zh: '扩编（二）' },
+    desc: { en: 'Crew per tile +2 more · takes no slot', zh: '每格人数上限再 +2 · 不占槽位' },
+    cost: { wood: 20, stone: 14, iron: 4 },
+    slot: false,
+    requires: 'crew1',
+  },
+  outskirts: {
+    label: { en: 'Outer grounds', zh: '外围营地' },
+    desc: {
+      en: 'Work and survey radius +1',
+      zh: '采集和探查半径 +1',
+    },
+    cost: { wood: 30, stone: 20 },
+    slot: true,
+  },
+};
+
+export const BUILDING_ORDER: BuildingId[] = [
+  'store',
+  'workshop',
+  'watchtower',
+  'outskirts',
+  'expansion',
+  'crew1',
+  'crew2',
+];
+
+/** 一处营地址开始时的槽位，以及营地扩建之后的槽位 */
+export const BASE_SLOTS = 3;
+export const EXPANDED_SLOTS = 6;
+
+/** 拆除返还多少，向下取整 */
+export const DEMOLISH_REFUND = 0.5;
+
+// ---------------------------------------------------------------- 装备
+
+/** 全队一份的装备。工具另算，按人数计 */
+export type GearId = 'jars' | 'packs';
+
+export interface Gear {
+  label: { en: string; zh: string };
+  desc: { en: string; zh: string };
+  cost: Cost;
+}
+
+export const GEAR: Record<GearId, Gear> = {
+  // 黏土管储量。现在仓库留在营地址上，赶路时的储量全靠它 ——
+  // 它成了迁徙的关键装备，正好对上黏土"管储量"的定位
   jars: {
     label: { en: 'Clay jars', zh: '储藏瓮' },
-    desc: { en: 'Storage +40', zh: '储量上限 +40' },
+    desc: { en: 'Storage +40, wherever you are', zh: '储量上限 +40，走到哪都算' },
     cost: { wood: 6, clay: 12 },
   },
-  // 兽皮管机动。这是向外迁徙那个环节的钥匙：赶路的回合没人干活，
-  // 走得快一点就是少亏一点，而更远处才有铁
+  // 兽皮管机动。赶路的回合没人干活，走得快一点就是少亏一点，而更远处才有铁
   packs: {
     label: { en: 'Pack frames', zh: '背架' },
     desc: { en: 'Moves +1 while roaming', zh: '游荡时行动力 +1' },
@@ -57,13 +143,7 @@ export const FACILITIES: Record<FacilityId, Facility> = {
   },
 };
 
-export const FACILITY_ORDER: FacilityId[] = [
-  'store',
-  'workshop',
-  'watchtower',
-  'jars',
-  'packs',
-];
+export const GEAR_ORDER: GearId[] = ['jars', 'packs'];
 
 // ---------------------------------------------------------------- 工具
 

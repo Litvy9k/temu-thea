@@ -18,6 +18,7 @@ import DesktopLayout from './DesktopLayout.jsx';
 import MobileLayout from './MobileLayout.jsx';
 import CampPanel from './CampPanel.jsx';
 import EventDialog from './EventDialog.jsx';
+import { ConfirmDialog } from './Overlays.jsx';
 import './Game.css';
 
 export default function Game({ lang = 'zh', seed, initialState = null, stateRef = null }) {
@@ -43,6 +44,7 @@ export default function Game({ lang = 'zh', seed, initialState = null, stateRef 
     >
       <div className="hg-stage" ref={g.wrapRef}>
         <canvas ref={g.canvasRef} {...g.canvasProps} />
+        {/* 提示条由各自的布局摆：手机上要贴着状态条底下，那个高度会变 */}
         {g.narrow !== null && <Layout {...g} />}
       </div>
 
@@ -59,6 +61,10 @@ export default function Game({ lang = 'zh', seed, initialState = null, stateRef 
           allowed={g.choiceAllowed}
           onChoose={g.choose}
         />
+      )}
+
+      {g.confirm && (
+        <ConfirmDialog confirm={g.confirm} lang={lang} onYes={g.confirmYes} onNo={g.confirmNo} />
       )}
     </div>
   );

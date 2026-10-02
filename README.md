@@ -5,7 +5,8 @@ At a very early stage
 
 A hex-grid survival game on a big procedural map. Roam, make camp, assign
 people to gather from the surrounding tiles, then spend what you gather on
-facilities and tools. Pure front end — no backend, no network requests.
+buildings and gear. Seasons turn, winters bite, and you choose whether to keep
+moving or settle. Pure front end — no backend, no network requests.
 
 React 19 + Vite. Core logic in TypeScript, React components in JSX.
 
@@ -27,7 +28,7 @@ its value — there is no language switch inside the game itself.
 npm install
 npm run dev        # dev server
 npm run build      # emits dist/ — three static files
-npm test           # 90 tests, no test framework (node:test)
+npm test           # 123 tests, no test framework (node:test)
 npm run typecheck  # tsc --noEmit
 ```
 

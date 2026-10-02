@@ -44,6 +44,7 @@ const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   hide: 0,
   iron: 0,
   camped: 1,
+  season: 0,
   ...over,
 });
 

@@ -19,8 +19,15 @@ import {
   stockCap,
   currentEvent,
   pendingCount,
-  buildFacility,
+  breakCampLoss,
+  buildBuilding,
+  craftGear,
   craftTool,
+  demolish,
+  demolishRefund,
+  foodUpkeep,
+  partyMoves,
+  woodUpkeep,
   campBlocker,
   createGame,
   endTurn,
@@ -32,6 +39,7 @@ import {
   workableTiles,
 } from '../core/state.ts';
 import { key } from '../core/hex.ts';
+import { seasonAt } from '../core/seasons.ts';
 import { centerOn, clampToMap, hexAtScreen, panBy, zoomAt } from '../render/camera.ts';
 import { describeHex, drawScene } from '../render/draw.ts';
 
@@ -51,6 +59,9 @@ export const NARROW_WIDTH = 720;
 
 /** 营地面板占一栏时的宽度。CSS 从 --camp-w 读，由 Game.jsx 写进去 */
 export const CAMP_PANEL_WIDTH = 268;
+
+/** 提示条停留多久（毫秒）。它不挡操作，所以不需要玩家去关 */
+const NOTICE_MS = 4500;
 
 /** 超过这个位移就算拖拽不算点击。触屏上手指落下时总会抖一两像素 */
 const DRAG_SLOP = 8;
@@ -255,7 +266,26 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
 
   // ---------------------------------------------------------------- 动作
 
-  const toggleCamp = useCallback(() => {
+  /*
+   * 确认框：拔营要扔东西、拆除建筑，这两件不能撤销的事先问一句。
+   * 存的是"要确认什么"的数据，不是一段 JSX —— 显示交给 ConfirmDialog。
+   */
+  const [confirm, setConfirm] = useState(null);
+
+  /*
+   * 不挡操作的提示条：换季、化冻落水。每条自己到时间消失。
+   * 和事件弹窗是两回事：事件要玩家做选择，这里只是告诉他发生了什么。
+   */
+  const [notices, setNotices] = useState([]);
+  const noticeId = useRef(0);
+  const pushNotice = useCallback((n) => {
+    noticeId.current += 1;
+    const id = noticeId.current;
+    setNotices((list) => [...list, { ...n, id }]);
+    setTimeout(() => setNotices((list) => list.filter((x) => x.id !== id)), NOTICE_MS);
+  }, []);
+
+  const doBreakOrMake = useCallback(() => {
     const ok = game.camp ? breakCamp(game) : makeCamp(game);
     if (ok) {
       setSelected(null);
@@ -264,6 +294,18 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
       bump();
     }
   }, [game]);
+
+  const toggleCamp = useCallback(() => {
+    if (game.camp) {
+      // 仓库留在营地址上，拔营后放不下的要扔 —— 先说清楚扔多少
+      const loss = breakCampLoss(game);
+      if (Object.values(loss).some((n) => n > 0)) {
+        setConfirm({ kind: 'break', amounts: loss });
+        return;
+      }
+    }
+    doBreakOrMake();
+  }, [game, doBreakOrMake]);
 
   const choose = useCallback(
     (index) => {
@@ -274,7 +316,29 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
 
   const build = useCallback(
     (id) => {
-      if (buildFacility(game, id)) bump();
+      if (buildBuilding(game, id)) bump();
+    },
+    [game],
+  );
+
+  const askDemolish = useCallback(
+    (id) => setConfirm({ kind: 'demolish', building: id, amounts: demolishRefund(id) }),
+    [],
+  );
+
+  const confirmYes = useCallback(() => {
+    const c = confirm;
+    setConfirm(null);
+    if (!c) return;
+    if (c.kind === 'break') doBreakOrMake();
+    else if (c.kind === 'demolish' && demolish(game, c.building)) bump();
+  }, [confirm, game, doBreakOrMake]);
+
+  const confirmNo = useCallback(() => setConfirm(null), []);
+
+  const makeGear = useCallback(
+    (id) => {
+      if (craftGear(game, id)) bump();
     },
     [game],
   );
@@ -287,9 +351,13 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
   );
 
   const doEndTurn = useCallback(() => {
+    const before = seasonAt(game.turn).id;
     endTurn(game);
+    const after = seasonAt(game.turn);
+    if (after.id !== before) pushNotice({ kind: 'season', season: after.id });
+    if (game.lastStranded) pushNotice({ kind: 'stranded', ...game.lastStranded });
     bump();
-  }, [game]);
+  }, [game, pushNotice]);
 
   const step = useCallback(
     (delta) => {
@@ -303,6 +371,8 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      // 确认框开着时，快捷键不该绕过它去结束回合或者拔营
+      if (confirm) return;
       if (e.code === 'Space' || e.code === 'Enter') {
         e.preventDefault();
         doEndTurn();
@@ -312,7 +382,7 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleCamp, doEndTurn]);
+  }, [toggleCamp, doEndTurn, confirm]);
 
   // ---------------------------------------------------------------- 派生
 
@@ -356,6 +426,17 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
 
     /** 每种资源的储量上限。顶到上限的产出会被倒掉 */
     stockCap: stockCap(game),
+    /** 这一回合的消耗 —— 冬天的柴、仓库省下的粮都已经算进去了 */
+    foodUpkeep: foodUpkeep(game),
+    woodUpkeep: woodUpkeep(game),
+    /** 这一回合的行动力上限（背架会抬高它） */
+    maxMoves: partyMoves(game),
+    season: seasonAt(game.turn),
+
+    confirm,
+    confirmYes,
+    confirmNo,
+    notices,
     /** HUD 该列哪几种资源。玩家拿到过的才上，上了就不再下 */
     seen: game.seenResources,
 
@@ -381,5 +462,7 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
     step,
     build,
     craft,
+    makeGear,
+    askDemolish,
   };
 }

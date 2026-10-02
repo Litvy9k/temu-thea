@@ -11,11 +11,15 @@ import { type Axial, axialToPixel, corners, key, offsetToAxial } from '../core/h
 import { tileAt } from '../core/map.ts';
 import { TERRAIN, type TerrainId } from '../core/terrain.ts';
 import { DEPOSITS, yieldsOf } from '../core/deposits.ts';
+import { iceCracking, isWinter } from '../core/seasons.ts';
+import { BUILDINGS } from '../core/works.ts';
 import {
   HARVEST_GOAL,
   type GameState,
   crewAt,
   crewCap,
+  siteAt,
+  stepCost,
   toolAllocation,
   workRateAt,
 } from '../core/state.ts';
@@ -44,6 +48,9 @@ export const COLORS = {
   crewLocked: 'rgba(255, 255, 255, 0.2)',
   /** 没探查过的矿位：? 和缩远后的灰点 */
   unsurveyed: '#c9cfd4',
+  /** 营地址的内框 */
+  site: 'rgba(201, 207, 212, 0.5)',
+  siteDim: 'rgba(201, 207, 212, 0.22)',
   barBack: 'rgba(0, 0, 0, 0.55)',
   barFill: '#7ce6be',
 };
@@ -83,8 +90,11 @@ export function drawScene(
 
   const { rowMin, rowMax, colMin, colMax } = visibleRange(cam, vp, map);
 
-  const lit = new Map<TerrainId, Path2D>();
-  const dim = new Map<TerrainId, Path2D>();
+  // 冬天的浅滩换成冰面，所以批次的键不只是地形
+  const lit = new Map<TerrainId | 'ice', Path2D>();
+  const dim = new Map<TerrainId | 'ice', Path2D>();
+  const winter = isWinter(state.turn);
+  const cracking = iceCracking(state.turn);
   // 三批符号：地形符号、矿位符号（含 ?）、缩远后的矿位色点。字号不同，所以分开收
   const glyphs: Mark[] = [];
   const veinMarks: Mark[] = [];
@@ -97,19 +107,22 @@ export function drawScene(
 
       const p = at(offsetToAxial(col, row));
 
+      const frozen = winter && tile.terrain === 'shallow';
+      const look = frozen ? (cracking ? ICE_CRACKING : ICE) : TERRAIN[tile.terrain];
+
       const bucket = tile.visible ? lit : dim;
-      let path = bucket.get(tile.terrain);
+      const k = frozen ? 'ice' : tile.terrain;
+      let path = bucket.get(k);
       if (!path) {
         path = new Path2D();
-        bucket.set(tile.terrain, path);
+        bucket.set(k, path);
       }
       addHex(path, p.x, p.y, shape);
 
       // 地形符号**永远**偏上，有没有矿脉都一样 —— 否则有矿的格子符号会往上跳一下，
       // 整张图的节奏就乱了
       if (s >= 13) {
-        const t = TERRAIN[tile.terrain];
-        glyphs.push({ x: p.x, y: p.y + s * SLOT.terrainY, ch: t.glyph, ink: t.ink, dim: !tile.visible });
+        glyphs.push({ x: p.x, y: p.y + s * SLOT.terrainY, ch: look.glyph, ink: look.ink, dim: !tile.visible });
       }
 
       if (tile.deposit) {
@@ -130,12 +143,13 @@ export function drawScene(
     }
   }
 
-  for (const [id, path] of lit) {
-    ctx.fillStyle = TERRAIN[id].fill;
+  const fillOf = (k: TerrainId | 'ice') => (k === 'ice' ? ICE.fill : TERRAIN[k].fill);
+  for (const [k, path] of lit) {
+    ctx.fillStyle = fillOf(k);
     ctx.fill(path);
   }
-  for (const [id, path] of dim) {
-    ctx.fillStyle = TERRAIN[id].fill;
+  for (const [k, path] of dim) {
+    ctx.fillStyle = fillOf(k);
     ctx.fill(path);
     ctx.fillStyle = COLORS.memory;
     ctx.fill(path);
@@ -147,6 +161,8 @@ export function drawScene(
     ctx.lineWidth = 1;
     for (const bucket of [lit, dim]) for (const path of bucket.values()) ctx.stroke(path);
   }
+
+  if (s >= 9) drawSiteFrames(ctx, state, at, s);
 
   drawMarks(ctx, glyphs, s * SLOT.terrainFont, 0.35);
   drawMarks(ctx, veinMarks, s * SLOT.veinFont, 0.45);
@@ -221,6 +237,51 @@ const SLOT = {
  */
 const BAR_INSET = 0.8;
 const BAR_GAP = 0.15;
+
+/**
+ * 冬天的浅滩：结了冰，能走上去。必须一眼看得出和平时的浅滩不一样 ——
+ * 玩家要靠它知道"现在这里能走"。最后几回合换成开裂的样子，提醒该上岸了。
+ */
+const ICE = { fill: '#35505c', glyph: '=', ink: '#a9d4e6' };
+const ICE_CRACKING = { fill: ICE.fill, glyph: '≠', ink: '#e6f2f7' };
+
+/**
+ * 营地址标记：比格子小一圈的灰色六边形内框。
+ *
+ * 它不占任何符号槽位，所以和地形符号、矿位都不打架；从 s >= 9 起就画，
+ * 拉远扫图时也看得见，不用另做一个缩远版本。两种情况不画：
+ *   这一格正显示着人力指示条（在旧址旁边扎营、派了人上去）——
+ *     指示条只画每条边中间那 70%，框画在底下会从角上的空隙里漏出一截截灰线；
+ *   营地就扎在这里 —— 亮色的 ⌂ 和圆环已经说明了。
+ */
+const SITE_INSET = 0.78;
+
+function drawSiteFrames(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  at: (h: Axial) => { x: number; y: number },
+  s: number,
+): void {
+  if (!state.map.sites.length) return;
+  const inner = corners(0, 0, s * SITE_INSET);
+  const lit = new Path2D();
+  const dim = new Path2D();
+
+  for (const site of state.map.sites) {
+    const tile = tileAt(state.map, site.at);
+    if (!tile?.explored) continue;
+    if (state.camp && key(state.camp.at) === key(site.at)) continue;
+    if (crewAt(state, site.at) > 0) continue;
+    const p = at(site.at);
+    addHex(tile.visible ? lit : dim, p.x, p.y, inner);
+  }
+
+  ctx.lineWidth = Math.max(1, s * 0.05);
+  ctx.strokeStyle = COLORS.site;
+  ctx.stroke(lit);
+  ctx.strokeStyle = COLORS.siteDim;
+  ctx.stroke(dim);
+}
 
 interface Mark {
   x: number;
@@ -437,7 +498,10 @@ export function describeHex(state: GameState, h: Axial | null, lang: 'en' | 'zh'
     depositGlyph: known ? DEPOSITS[known].glyph : null,
     /** 有矿脉但还没走到跟前 */
     unsurveyed: Boolean(tile.deposit && !tile.surveyed),
-    moveCost: t.moveCost,
+    // 走 stepCost 而不是地形表：冬天的冰面、春天的沼泽都在这里体现
+    moveCost: stepCost(state, h),
+    /** 这一格是营地址的话，建在这里的建筑名字 */
+    site: siteAt(state, h)?.buildings.map((b) => BUILDINGS[b].label[lang]) ?? null,
     yields,
     coord: key(h),
     progress: tile.progress,

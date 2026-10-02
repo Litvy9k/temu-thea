@@ -14,7 +14,7 @@
  * tile，每走一步整份复制不值当。代价是撤销要靠 snapshot() 显式存快照。
  */
 import { type Axial, distance, equals, key, parseKey, range, reachable } from './hex.ts';
-import { type GameMap, generateMap, tileAt } from './map.ts';
+import { type GameMap, type Site, generateMap, tileAt } from './map.ts';
 import { DEPOSITS, type DepositId, yieldsOf } from './deposits.ts';
 import { seedFrom, step } from './rng.ts';
 import {
@@ -35,8 +35,14 @@ import {
   primaryOf,
 } from './terrain.ts';
 import {
-  FACILITIES,
-  type FacilityId,
+  BASE_SLOTS,
+  BUILDINGS,
+  type BuildingId,
+  type Cost,
+  DEMOLISH_REFUND,
+  EXPANDED_SLOTS,
+  GEAR,
+  type GearId,
   NO_TOOLS,
   TOOLS,
   TOOL_PRIORITY,
@@ -44,6 +50,17 @@ import {
   canAfford,
   payCost,
 } from './works.ts';
+import {
+  ICE_COST,
+  SPRING_GROWTH_EVERY,
+  SPRING_MARSH_COST,
+  SUMMER_SIGHT_BONUS,
+  WADE_COST,
+  WINTER_WOOD_FACTOR,
+  YEAR_LENGTH,
+  isWinter,
+  seasonAt,
+} from './seasons.ts';
 
 /** 营地的作业半径。1 = 周围一圈六格 */
 export const CAMP_RADIUS = 1;
@@ -80,12 +97,26 @@ export const MAX_CREW_PER_TILE = 6;
 export const BASE_CREW_CAP = 2;
 
 export const START_PEOPLE = 3;
-/**
- * 每隔几回合人口 +1。挨饿的回合不涨。
- *
- * 自然增长故意放得很慢 —— 人口主要该由决策和事件推动，时间只是保底。
+/*
+ * 自然增长只发生在春天，节奏见 seasons.ts 的 SPRING_GROWTH_EVERY。
+ * 故意放得很慢 —— 人口主要该由决策和事件推动，时间只是保底。
  */
-export const GROWTH_EVERY = 10;
+
+/**
+ * 地图上最多几处营地址。
+ *
+ * 拦的是"在新地点造第一座建筑"，**不拦扎营**：扎营本身不会生成营地址，
+ * 拦扎营的话，一支已经有 5 处营地址的队伍在别处就没法干活，只能回去或者饿死。
+ * 想腾出名额：等某处倒塌，或者回去把那里的建筑拆光。
+ */
+export const MAX_SITES = 5;
+
+/**
+ * 营地址多久没人来就倒塌（回合）。暂定两年，到时间直接消失，不提醒。
+ * 季节性往返的营地会一直立着，一路走一路丢的营地会自己清掉 —— 也顺带
+ * 限住了存档的大小。
+ */
+export const SITE_LIFETIME = 2 * YEAR_LENGTH;
 
 /** 每人每回合吃掉的食物。食物是唯一按人头算的消耗 */
 export const UPKEEP_FOOD_PER_PERSON = 1;
@@ -108,15 +139,25 @@ export const UPKEEP_WOOD_PER_TURN = 1;
  * 设定上也对得上：一支游牧队伍只能带走扛得动的东西。
  */
 export const STOCK_BASE_CAP = 40;
-/** 仓库把上限抬高多少 */
+/** 仓库把上限抬高多少。仓库是建筑，只在它所在的营地生效 */
 export const STORE_CAP_BONUS = 40;
-/** 储藏瓮把上限抬高多少。和仓库叠加 */
+/** 储藏瓮把上限抬高多少。储藏瓮是装备，走到哪都算；和仓库叠加 */
 export const JARS_CAP_BONUS = 40;
+/** 每级扩编给每格人数上限加多少 */
+export const CREW_BONUS = 2;
 
 export interface Party {
   at: Axial;
   moves: number;
   people: number;
+  /**
+   * 这一回合开始时站在化了冻的浅滩上。为真时这一回合可以继续涉入别的浅滩
+   * （只限浅滩，深海和山都不行）；为假时浅滩照旧进不去。
+   *
+   * 判断"是在往岸上走还是往深处走"交给玩家，游戏不替他判 —— 每回合结束时
+   * 还泡在水里就要付代价（见 endTurn），这个代价负责逼人尽快上岸。
+   */
+  stranded: boolean;
 }
 
 export interface Camp {
@@ -141,8 +182,8 @@ export interface GameState {
   /** null 表示正在游荡 */
   camp: Camp | null;
   /**
-   * 随队工事与行装。**不放在 camp 里** —— 拔营时 camp 置 null，这些跟着
-   * 队伍走，于是"拔营再扎营后保留"是模型的自然结果而不是特例逻辑。
+   * 装备：工具和全队一份的行装。**不放在 camp 里** —— 拔营时 camp 置 null，
+   * 这些跟着队伍走。建筑在另一处：地图上的营地址（map.sites）。
    */
   works: Works;
   turn: number;
@@ -156,6 +197,11 @@ export interface GameState {
    * 只会看到"收支 +19 但存量没动"，以为是 bug。
    */
   lastWasted: Stock;
+  /**
+   * 上一回合结束时泡在化了冻的水里付出的代价，给界面提示用；没有就是 null。
+   * 不进存档 —— 和 visible 一样是一次性的显示信息。
+   */
+  lastStranded: { people: number; stock: Stock } | null;
   /** 连续吃不上饭 / 烧不上火的回合数 */
   hardship: number;
   /** 人死光了 */
@@ -188,8 +234,8 @@ export interface GameState {
 }
 
 export interface Works {
-  /** 已建成的设施。每种只能有一座 */
-  facilities: FacilityId[];
+  /** 全队一份的装备，每种最多一件 */
+  gear: GearId[];
   /** 各类工具的数量 */
   tools: Record<ToolId, number>;
 }
@@ -217,9 +263,9 @@ export function createGame(opts: NewGameOptions = {}): GameState {
 
   const state: GameState = {
     map,
-    party: { at: { ...map.origin }, moves: PARTY_MOVES, people: START_PEOPLE },
+    party: { at: { ...map.origin }, moves: PARTY_MOVES, people: START_PEOPLE, stranded: false },
     camp: null,
-    works: { facilities: [], tools: { ...NO_TOOLS } },
+    works: { gear: [], tools: { ...NO_TOOLS } },
     turn: 1,
     stock: { ...NO_STOCK, food: 12, wood: 12 },
     // 开局只显示这三种：剩下的要等玩家真的采到才上 HUD
@@ -227,6 +273,7 @@ export function createGame(opts: NewGameOptions = {}): GameState {
     lastIncome: { ...NO_STOCK },
     lastShortage: { food: 0, wood: 0 },
     lastWasted: { ...NO_STOCK },
+    lastStranded: null,
     hardship: 0,
     over: false,
     pendingEvents: [],
@@ -242,15 +289,20 @@ export function createGame(opts: NewGameOptions = {}): GameState {
 
 // ---------------------------------------------------------------- 视野
 
-/** 营地视野。了望塔加一格 */
+/** 夏天看得远一格 */
+function seasonSight(state: GameState): number {
+  return seasonAt(state.turn).id === 'summer' ? SUMMER_SIGHT_BONUS : 0;
+}
+
+/** 营地视野。了望塔（这处营地的）加一格，夏天再加一格 */
 export function campSight(state: GameState): number {
-  return CAMP_SIGHT + (hasFacility(state, 'watchtower') ? 1 : 0);
+  return CAMP_SIGHT + (hasBuilding(state, 'watchtower') ? 1 : 0) + seasonSight(state);
 }
 
 /** 站在哪看多远由脚下地形决定，但至少能看见隔壁 */
 export function sightFrom(state: GameState, h: Axial): number {
   const tile = tileAt(state.map, h);
-  return Math.max(1, tile ? TERRAIN[tile.terrain].sight : 1);
+  return Math.max(1, tile ? TERRAIN[tile.terrain].sight : 1) + seasonSight(state);
 }
 
 /**
@@ -286,10 +338,23 @@ export function refreshVision(state: GameState): void {
 
 // ---------------------------------------------------------------- 移动
 
-/** 进入这一格要花多少行动力。null = 进不去 */
+/**
+ * 进入这一格要花多少行动力。null = 进不去。
+ *
+ * 季节在这里改地图的形状：冬天浅滩结冰能走，春天沼泽泛滥更难走。
+ * 寻路、地格面板、可达范围全都读这一个函数，季节才不会在某一处漏算。
+ */
 export function stepCost(state: GameState, h: Axial): number | null {
   const tile = tileAt(state.map, h);
   if (!tile) return null;
+
+  if (tile.terrain === 'shallow') {
+    if (isWinter(state.turn)) return ICE_COST;
+    // 化冻后困在水里：只能在浅滩之间涉水，深海和山照样进不去
+    return state.party.stranded ? WADE_COST : null;
+  }
+  if (tile.terrain === 'marsh' && seasonAt(state.turn).id === 'spring') return SPRING_MARSH_COST;
+
   // 没探明的地方照样能走进去 —— 探索本来就是往看不见的地方走
   return TERRAIN[tile.terrain].moveCost;
 }
@@ -325,6 +390,8 @@ export function campBlocker(state: GameState): CampBlocker {
   if (state.camp) return 'camped';
 
   const tile = tileAt(state.map, state.party.at);
+  // 浅滩在地形表里本来就是不可通行的，所以冰面上也扎不了营 ——
+  // 冬天能走上去，但化冻时营地会泡在水里
   if (!tile || !isPassable(tile.terrain)) return 'terrain';
   // 走光了行动力就没法当回合再扎营，否则"走到底 + 立刻开工"没有代价
   if (state.party.moves <= 0) return 'noMoves';
@@ -337,17 +404,40 @@ export function makeCamp(state: GameState): boolean {
   state.camp = { at: { ...state.party.at }, crew: {}, order: [] };
   // 扎营吃掉当回合剩下的行动力
   state.party.moves = 0;
+  // 回到一处营地址扎营就算来过；这处的建筑随之重新生效
+  const site = currentSite(state);
+  if (site) site.lastVisit = state.turn;
   refreshVision(state);
   state.version += 1;
   return true;
 }
 
-/** 拔营。人全部收回队伍，同样吃掉当回合剩余行动力 */
+/**
+ * 拔营会扔掉多少东西。
+ *
+ * 仓库是建筑，留在营地址上；拔营后储量上限回到"基础 + 储藏瓮"，放不下的
+ * 就得扔。界面先拿这个问玩家一句，确认了再调 breakCamp。
+ */
+export function breakCampLoss(state: GameState): Stock {
+  const loss: Stock = { ...NO_STOCK };
+  if (!state.camp) return loss;
+  const after = STOCK_BASE_CAP + (hasGear(state, 'jars') ? JARS_CAP_BONUS : 0);
+  for (const res of RESOURCE_IDS) loss[res] = Math.max(0, state.stock[res] - after);
+  return loss;
+}
+
+/**
+ * 拔营。人全部收回队伍，同样吃掉当回合剩余行动力。
+ * 建筑不动 —— 它们在营地址上，营地只是不再指着那里。
+ */
 export function breakCamp(state: GameState): boolean {
   if (!state.camp || state.over) return false;
 
   state.camp = null;
   state.party.moves = 0;
+  // 仓库留下了，储量上限随之降低；倒掉的量记进 lastWasted，HUD 上看得见
+  const wasted = clampToCap(state);
+  for (const res of RESOURCE_IDS) state.lastWasted[res] += wasted[res];
   refreshVision(state);
   state.version += 1;
   return true;
@@ -368,13 +458,15 @@ export function workable(tile: { terrain: TerrainId; deposit: DepositId | null }
  * 而队伍旁边这一圈在 refreshVision 里已经探查过了。有测试盯着这条。
  * 以后扩大半径的设施只改这里，两件事一起变。
  */
-export function workRadius(_state: GameState): number {
-  return CAMP_RADIUS;
+export function workRadius(state: GameState): number {
+  return CAMP_RADIUS + (hasBuilding(state, 'outskirts') ? 1 : 0);
 }
 
 /** 当前每格最多派几个人。以后的扩编设施往这里加，但永远不超过 MAX_CREW_PER_TILE */
-export function crewCap(_state: GameState): number {
-  return Math.min(MAX_CREW_PER_TILE, BASE_CREW_CAP);
+export function crewCap(state: GameState): number {
+  const bonus =
+    (hasBuilding(state, 'crew1') ? CREW_BONUS : 0) + (hasBuilding(state, 'crew2') ? CREW_BONUS : 0);
+  return Math.min(MAX_CREW_PER_TILE, BASE_CREW_CAP + bonus);
 }
 
 /** 营地周围能派人干活的格子。浅滩和山地进不去但能采，所以看的是产出不是通行 */
@@ -476,12 +568,17 @@ function trimCrew(state: GameState): void {
 export function enforceCrewCap(state: GameState): void {
   if (!state.camp) return;
   const cap = crewCap(state);
+  const r = workRadius(state);
+  const at = state.camp.at;
   for (let i = state.camp.order.length - 1; i >= 0; i -= 1) {
     const k = state.camp.order[i];
     const n = state.camp.crew[k] ?? 0;
-    if (n <= cap) continue;
+    // 拆了外围营地，半径缩回去了：圈外的人一并撤回
+    const outside = distance(at, parseKey(k)) > r;
+    if (n <= cap && !outside) continue;
     state.camp.order.splice(i, 1);
-    state.camp.crew[k] = n - 1;
+    if (n <= 1) delete state.camp.crew[k];
+    else state.camp.crew[k] = n - 1;
   }
 }
 
@@ -568,37 +665,143 @@ export function workRateAt(state: GameState, h: Axial, alloc = toolAllocation(st
   };
 }
 
-// ---------------------------------------------------------------- 建造
+// ---------------------------------------------------------------- 营地址与建筑
 
-export function hasFacility(state: GameState, id: FacilityId): boolean {
-  return state.works.facilities.includes(id);
+/** 某一格上的营地址，没有就是 null */
+export function siteAt(state: GameState, h: Axial): Site | null {
+  return state.map.sites.find((s) => equals(s.at, h)) ?? null;
 }
 
-export type BuildBlocker = 'built' | 'noCamp' | 'cost' | null;
+/**
+ * 当前营地所在的营地址。营地和营地址靠**位置**相认，不存指针 ——
+ * 营地址可能倒塌、被拆光，存下来的引用会过期，位置不会。
+ */
+export function currentSite(state: GameState): Site | null {
+  return state.camp ? siteAt(state, state.camp.at) : null;
+}
 
-export function buildBlocker(state: GameState, id: FacilityId): BuildBlocker {
-  if (hasFacility(state, id)) return 'built';
+/** 当前营地有没有这座建筑。不在营地里就什么建筑都用不上 */
+export function hasBuilding(state: GameState, id: BuildingId): boolean {
+  return currentSite(state)?.buildings.includes(id) ?? false;
+}
+
+export function hasGear(state: GameState, id: GearId): boolean {
+  return state.works.gear.includes(id);
+}
+
+/** 这处营地址一共几个槽位 */
+export function slotCapacity(site: Site | null): number {
+  return site?.buildings.includes('expansion') ? EXPANDED_SLOTS : BASE_SLOTS;
+}
+
+/** 已经占用的槽位。不占槽位的建筑（营地扩建、扩编）不算 */
+export function slotsUsed(site: Site | null): number {
+  return site ? site.buildings.filter((b) => BUILDINGS[b].slot).length : 0;
+}
+
+export type BuildBlocker =
+  | 'noCamp'
+  | 'built'
+  | 'requires'
+  | 'slots'
+  | 'siteLimit'
+  | 'cost'
+  | null;
+
+export function buildBlocker(state: GameState, id: BuildingId): BuildBlocker {
   // 造东西要有个地方摆，所以必须先扎营
   if (!state.camp || state.over) return 'noCamp';
-  if (!canAfford(state.stock, FACILITIES[id].cost)) return 'cost';
+  const site = currentSite(state);
+  const b = BUILDINGS[id];
+
+  if (site?.buildings.includes(id)) return 'built';
+  if (b.requires && !site?.buildings.includes(b.requires)) return 'requires';
+  if (b.slot && slotsUsed(site) >= slotCapacity(site)) return 'slots';
+  // 在新地点造第一座，会生成一处新的营地址
+  if (!site && state.map.sites.length >= MAX_SITES) return 'siteLimit';
+  if (!canAfford(state.stock, b.cost)) return 'cost';
   return null;
 }
 
-export function buildFacility(state: GameState, id: FacilityId): boolean {
+export function buildBuilding(state: GameState, id: BuildingId): boolean {
   if (buildBlocker(state, id) != null) return false;
 
-  payCost(state.stock, FACILITIES[id].cost);
-  state.works.facilities.push(id);
+  payCost(state.stock, BUILDINGS[id].cost);
+  let site = currentSite(state);
+  if (!site) {
+    // 营地址从第一座建筑开始存在
+    site = { at: { ...state.camp!.at }, buildings: [], lastVisit: state.turn };
+    state.map.sites.push(site);
+  }
+  site.buildings.push(id);
+  // 了望塔改视野、外围营地改半径（也就改了探查范围）
   refreshVision(state);
   state.version += 1;
   return true;
 }
 
-export type CraftBlocker = 'locked' | 'noCamp' | 'cost' | null;
+export type DemolishBlocker = 'noCamp' | 'notBuilt' | 'needed' | null;
+
+/**
+ * 能不能拆。**被别的建筑依赖的不能拆**：扩编（二）还在，扩编就不能拆；
+ * 后三个槽位还有建筑，营地扩建就不能拆 —— 拆了那几座就没槽位放了。
+ */
+export function demolishBlocker(state: GameState, id: BuildingId): DemolishBlocker {
+  if (!state.camp || state.over) return 'noCamp';
+  const site = currentSite(state);
+  if (!site?.buildings.includes(id)) return 'notBuilt';
+
+  if (site.buildings.some((b) => BUILDINGS[b].requires === id)) return 'needed';
+  if (id === 'expansion' && slotsUsed(site) > BASE_SLOTS) return 'needed';
+  return null;
+}
+
+/** 拆除返还多少：造价的一半，向下取整 */
+export function demolishRefund(id: BuildingId): Cost {
+  const out: Cost = {};
+  for (const [res, n] of Object.entries(BUILDINGS[id].cost)) {
+    const back = Math.floor((n as number) * DEMOLISH_REFUND);
+    if (back > 0) out[res as ResourceId] = back;
+  }
+  return out;
+}
+
+export function demolish(state: GameState, id: BuildingId): boolean {
+  if (demolishBlocker(state, id) != null) return false;
+
+  const site = currentSite(state)!;
+  site.buildings = site.buildings.filter((b) => b !== id);
+  // 建筑拆光了，这里就不再是营地址
+  if (!site.buildings.length) state.map.sites = state.map.sites.filter((s) => s !== site);
+
+  for (const [res, n] of Object.entries(demolishRefund(id))) {
+    state.stock[res as ResourceId] += n as number;
+  }
+  // 返还也是入库，一样过储量上限 —— 拆了仓库，上限本身也降了
+  const wasted = clampToCap(state);
+  for (const res of RESOURCE_IDS) state.lastWasted[res] += wasted[res];
+
+  // 拆了扩编或外围营地，人数上限或半径会变小
+  enforceCrewCap(state);
+  refreshVision(state);
+  state.version += 1;
+  return true;
+}
+
+// ---------------------------------------------------------------- 装备
+
+export type CraftBlocker = 'locked' | 'noCamp' | 'owned' | 'cost' | null;
+
+/** 制作要有工棚 —— 而且是**这处营地**的工棚。做好的装备走到哪都能用 */
+function craftGate(state: GameState): CraftBlocker {
+  if (!state.camp || state.over) return 'noCamp';
+  if (!hasBuilding(state, 'workshop')) return 'locked';
+  return null;
+}
 
 export function craftBlocker(state: GameState, id: ToolId): CraftBlocker {
-  if (!state.camp || state.over) return 'noCamp';
-  if (!hasFacility(state, 'workshop')) return 'locked';
+  const gate = craftGate(state);
+  if (gate) return gate;
   if (!canAfford(state.stock, TOOLS[id].cost)) return 'cost';
   return null;
 }
@@ -612,7 +815,73 @@ export function craftTool(state: GameState, id: ToolId): boolean {
   return true;
 }
 
+export function gearBlocker(state: GameState, id: GearId): CraftBlocker {
+  const gate = craftGate(state);
+  if (gate) return gate;
+  if (hasGear(state, id)) return 'owned';
+  if (!canAfford(state.stock, GEAR[id].cost)) return 'cost';
+  return null;
+}
+
+export function craftGear(state: GameState, id: GearId): boolean {
+  if (gearBlocker(state, id) != null) return false;
+
+  payCost(state.stock, GEAR[id].cost);
+  state.works.gear.push(id);
+  state.version += 1;
+  return true;
+}
+
 // ---------------------------------------------------------------- 回合
+
+/** 这一回合要吃多少食物。仓库（这处营地的）省下的是总量里的一份，不是每人一份 */
+export function foodUpkeep(state: GameState): number {
+  const stored = hasBuilding(state, 'store') ? 1 : 0;
+  return Math.max(0, state.party.people * UPKEEP_FOOD_PER_PERSON - stored);
+}
+
+/** 这一回合篝火烧多少柴。冬天翻倍 —— 和人数无关这一点不变 */
+export function woodUpkeep(state: GameState): number {
+  return UPKEEP_WOOD_PER_TURN * (isWinter(state.turn) ? WINTER_WOOD_FACTOR : 1);
+}
+
+/** 站在化了冻的浅滩上：冬天以外的浅滩都算 */
+function onThawedWater(state: GameState): boolean {
+  const tile = tileAt(state.map, state.party.at);
+  return tile?.terrain === 'shallow' && !isWinter(state.turn);
+}
+
+/** 泡在水里每回合付的代价：0–2 人，每样东西 10%–30%（向上取整） */
+export const STRANDED_PEOPLE_MAX = 2;
+export const STRANDED_LOSS_MIN = 0.1;
+export const STRANDED_LOSS_MAX = 0.3;
+
+/**
+ * 结算泡在水里的代价。用 state.rngState 抽，读档后结果可以复现。
+ *
+ * 小队伍更容易被这一下打垮，这是有意的：3 个人拖 3 回合，全灭的概率
+ * 大约六成。代价存进 lastStranded 给界面提示。
+ */
+function strandedPenalty(state: GameState): void {
+  const roll = () => {
+    const r = step(state.rngState);
+    state.rngState = r.next;
+    return r.value;
+  };
+
+  const people = Math.min(state.party.people, Math.floor(roll() * (STRANDED_PEOPLE_MAX + 1)));
+  const share = STRANDED_LOSS_MIN + roll() * (STRANDED_LOSS_MAX - STRANDED_LOSS_MIN);
+  const lost: Stock = { ...NO_STOCK };
+  for (const res of RESOURCE_IDS) {
+    // 只扣手里有的。这一回合要是已经缺粮，库存此刻是负的 —— 对负数取比例
+    // 再向上取整会得到负的"损失"，等于把缺口补平、把这次饥荒抹掉
+    const have = state.stock[res];
+    lost[res] = have > 0 ? Math.min(have, Math.ceil(have * share)) : 0;
+    state.stock[res] -= lost[res];
+  }
+  state.party.people -= people;
+  state.lastStranded = { people, stock: lost };
+}
 
 export function endTurn(state: GameState): void {
   if (state.over) return;
@@ -644,16 +913,18 @@ export function endTurn(state: GameState): void {
     }
   }
 
-  // 消耗：吃饭按人头，烧柴按营火 —— 口径不同，别合并成一行。
-  // 仓库省下的是总量里的一份，不是每人一份，所以减在乘法之外
-  const stored = hasFacility(state, 'store') ? 1 : 0;
-  income.food -= Math.max(0, state.party.people * UPKEEP_FOOD_PER_PERSON - stored);
-  income.wood -= UPKEEP_WOOD_PER_TURN;
+  // 消耗：吃饭按人头，烧柴按营火 —— 口径不同，别合并成一行
+  income.food -= foodUpkeep(state);
+  income.wood -= woodUpkeep(state);
 
   for (const res of RESOURCE_IDS) state.stock[res] += income[res];
 
   // 顶到上限的部分倒掉，但要记下来给 HUD 显示
   state.lastWasted = clampToCap(state);
+
+  // 回合结束时还泡在化了冻的水里：丢人又丢货。回合一开始就上岸的不受罚
+  state.lastStranded = null;
+  if (onThawedWater(state)) strandedPenalty(state);
 
   // 缺口：任何一样不够，都要减员。食物是饿死，木材是冻死，代价一样
   const shortage = {
@@ -670,15 +941,27 @@ export function endTurn(state: GameState): void {
     trimCrew(state);
   } else {
     state.hardship = 0;
-    // 只有日子过得下去的回合才添丁
-    if (state.turn % GROWTH_EVERY === 0) state.party.people += 1;
+    // 只有日子过得下去的回合才添丁，而且只在春天
+    const season = seasonAt(state.turn);
+    if (season.id === 'spring' && season.day % SPRING_GROWTH_EVERY === 0) state.party.people += 1;
   }
 
   if (state.party.people <= 0) state.over = true;
+  trimCrew(state);
+
+  // 扎营期间每回合都算来过，所以有人住着的营地址永远不会倒塌
+  const site = currentSite(state);
+  if (site) site.lastVisit = state.turn;
+  // 太久没人来的营地址直接消失，不提醒
+  state.map.sites = state.map.sites.filter((x) => state.turn - x.lastVisit < SITE_LIFETIME);
 
   state.lastIncome = income;
   state.party.moves = partyMoves(state);
   state.turn += 1;
+  // 换季可能刚好化冻：新回合一开始就站在水里，这一回合允许涉水
+  state.party.stranded = onThawedWater(state);
+  // 季节变了，视野（夏天）和冰面都跟着变
+  refreshVision(state);
   noteResources(state);
 
   // 放在 turn += 1 之后：条件里写的 turn 指的是即将开始的那一回合
@@ -701,6 +984,8 @@ export function metrics(state: GameState): Snapshot {
      * 这类事件从第 2 回合就开始触发。游荡不是闲着，是在赶路。
      */
     idle: state.camp ? idleCount(state) : 0,
+    /** 0..3，春夏秋冬 */
+    season: seasonAt(state.turn).index,
     food: state.stock.food,
     wood: state.stock.wood,
     stone: state.stock.stone,
@@ -799,14 +1084,14 @@ export function chooseEvent(state: GameState, index: number): boolean {
 export function stockCap(state: GameState): number {
   return (
     STOCK_BASE_CAP +
-    (hasFacility(state, 'store') ? STORE_CAP_BONUS : 0) +
-    (hasFacility(state, 'jars') ? JARS_CAP_BONUS : 0)
+    (hasBuilding(state, 'store') ? STORE_CAP_BONUS : 0) +
+    (hasGear(state, 'jars') ? JARS_CAP_BONUS : 0)
   );
 }
 
 /** 这一回合的行动力上限。背架把它抬高一点 —— 往外迁徙的唯一加速器 */
 export function partyMoves(state: GameState): number {
-  return PARTY_MOVES + (hasFacility(state, 'packs') ? PACKS_MOVE_BONUS : 0);
+  return PARTY_MOVES + (hasGear(state, 'packs') ? PACKS_MOVE_BONUS : 0);
 }
 
 /**

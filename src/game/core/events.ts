@@ -39,6 +39,8 @@ export type Metric =
   | 'people'
   | 'idle'
   | 'camped'
+  /** 0..3，春夏秋冬。用下面的 inSeason() 写条件，别直接写数字 */
+  | 'season'
   | 'food'
   | 'wood'
   | 'stone'
@@ -62,6 +64,11 @@ export const CAMPED: Condition = { metric: 'camped', op: '==', value: 1 };
 
 /** 只在游荡时 */
 export const ROAMING: Condition = { metric: 'camped', op: '==', value: 0 };
+
+/** 只在某个季节。和 CAMPED 一样只是一个常量条件，不另开一种条件类型 */
+export function inSeason(id: 'spring' | 'summer' | 'autumn' | 'winter'): Condition {
+  return { metric: 'season', op: '==', value: ['spring', 'summer', 'autumn', 'winter'].indexOf(id) };
+}
 
 export interface Rule {
   /** 这些条件全部成立才算这一条命中（AND） */
