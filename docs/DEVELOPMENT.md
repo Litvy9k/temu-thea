@@ -376,6 +376,8 @@ At cap 5, **wanderers bring 19.6 people per run against 6 from natural growth**.
 
 These are settled with the designer and shape everything below.
 
+- **Judging a site is the player's job.** There is no site-evaluation feature:
+  the tile panel and `?` are the information; weighing it is the game.
 - **Roaming and settling are both valid for a whole run; the player chooses.**
   Finding a great spot and staying for good is a first-class way to play, and so
   is never stopping, and so is moving between a few seasonal camps. Nothing
@@ -426,6 +428,25 @@ Numbers in this section are provisional; the shapes are agreed.
       drawn, and reappears once the bars go.
     - the party is camped on the site itself — the bright `⌂` and ring already
       say it.
+  - **No building levels.** A stronger version of a building is a separate
+    building that **requires** the weaker one (crew expansion II requires crew
+    expansion I).
+  - **Demolishing** is allowed and refunds 50% of the cost, rounded down. The
+    refund goes through `clampToCap()` like every other way stock is added — a
+    full store throws the excess away, or demolition becomes a way around the cap.
+  - **A building that another standing building depends on cannot be
+    demolished.** The slot opener is the first case: slots 4–6 depend on it, so it
+    stays while any of them is occupied.
+  - **A visit means camping on the site.** Passing by does not count; every camped
+    turn refreshes it, so an inhabited site never collapses.
+  - **A camp that never built anything leaves no site** — after breaking camp the
+    tile is ordinary ground. A site exists from its first building, and a site
+    whose buildings are all demolished stops existing.
+  - **At most 5 sites (provisional).** The limit blocks **the first building at a
+    new place**, not making camp: camping creates no site, and blocking it would
+    leave a party with five sites unable to work anywhere else. To free a place,
+    wait for a site to collapse or demolish everything at one. The camp panel
+    shows `sites 3/5`, and the build button says why when it is blocked.
   - **A site collapses after 2–3 years (160–240 turns) without a visit, and simply
     disappears — no warning, no ruin.** Seasonal circuits stay standing; a trail
     of one-off camps clears itself. It also bounds save size.
@@ -522,8 +543,6 @@ Numbers in this section are provisional; the shapes are agreed.
 - **A facility that widens the work and survey radius.** Hook: `workRadius()`.
   Radius 2 is 18 work tiles — at cap 6 that is 108 slots, triple anything today,
   so this belongs late and should be expensive. Cost not decided.
-- **Site evaluation while roaming** — what a candidate camp is worth before you
-  commit a turn to it. Deposits and `?` make this necessary.
 
 ### Needs a decision
 
@@ -532,13 +551,14 @@ Numbers in this section are provisional; the shapes are agreed.
   holding a site, as gear they travel.
 - The list of buildings and what each does (content; the slot mechanism is
   agreed).
-- Building mechanics, proposed and awaiting a yes:
-  - buildings can be **upgraded in place**, the upgrade taking no extra slot
-    (crew expansion would be 2 → 4 → 6 rather than one +4 building);
-  - buildings can be **demolished**, no refund, with a confirmation;
-  - the slot opener cannot be demolished while slots 4–6 are occupied;
-  - a **visit** means camping on the site; passing by does not count, and every
-    camped turn refreshes it, so an inhabited site never collapses.
+- Prerequisite buildings, awaiting a yes:
+  - after building crew expansion II, does crew expansion I keep its slot?
+    Proposed: yes — both stand, each takes a slot, effects add (+2, +2). The cost
+    of going further is a slot, which is what "no levels" buys. A fully grown
+    site then holds exactly six: crew I, crew II, radius, store, workshop,
+    watchtower, plus the slot opener outside the count.
+  - a prerequisite must stand at the same site (proposed: yes — buildings belong
+    to a site, so a cross-site requirement means nothing).
 - Selecting a site tile, proposed: outline its work ring faintly and list its
   buildings in the tile panel. Footprints are never drawn otherwise, so nearby
   sites do not pile up rings.
