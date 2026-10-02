@@ -182,6 +182,11 @@
   color: var(--accent);
 }
 
+/* 没探查的那一行不用强调色：它说的是"还不知道"，不是"找到了" */
+.hexgame .hg-vein--unknown {
+  color: var(--ink-dim);
+}
+
 /* 资源：名字 + 存量 + 上回合收支 */
 .hexgame .hg-res {
   display: inline-flex;

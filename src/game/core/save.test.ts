@@ -170,3 +170,31 @@ test('文件名带回合数，且只含文件系统安全的字符', () => {
   const name = saveFilename(g);
   assert.match(name, /^temu-thea-t\d+-\d{8}-\d{4}\.json$/);
 });
+
+test('探查状态存得下：小写是没探查，大写是探查过', () => {
+  const g = createGame({ seed: 'thea' });
+  const veins = g.map.tiles
+    .map((t, i) => [t, i] as const)
+    .filter(([t]) => t.deposit)
+    .slice(0, 2);
+  assert.equal(veins.length, 2, '这张图上矿脉不够两处，测试前提不成立');
+  veins[0][0].surveyed = true;
+  veins[1][0].surveyed = false;
+
+  const back = parseSave(serialize(g));
+  assert.equal(back.map.tiles[veins[0][1]].surveyed, true);
+  assert.equal(back.map.tiles[veins[1][1]].surveyed, false, '没探查的矿脉读回来变成探查过了');
+  assert.equal(back.map.tiles[veins[1][1]].deposit, veins[1][0].deposit, '小写编码把矿脉种类读错了');
+});
+
+test('这个机制出现之前的存档，矿脉全算探查过', () => {
+  // 老存档的矿脉列全是大写。读回来要是变成未探查，就等于把玩家
+  // 已经知道的东西又藏了起来
+  const g = createGame({ seed: 'thea' });
+  for (const t of g.map.tiles) if (t.deposit) t.surveyed = false;
+  const file = JSON.parse(serialize(g));
+  file.map.deposit = file.map.deposit.toUpperCase();
+
+  const back = parseSave(JSON.stringify(file));
+  for (const t of back.map.tiles) if (t.deposit) assert.equal(t.surveyed, true);
+});

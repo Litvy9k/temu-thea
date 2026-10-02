@@ -12,10 +12,18 @@ import assert from 'node:assert/strict';
 import { distance } from './hex.ts';
 import { DEPOSITS, DEPOSIT_ORDER, densityAt, yieldsOf } from './deposits.ts';
 import { generateMap, hexOfIndex, tileAt } from './map.ts';
-import { TERRAIN, primaryOf } from './terrain.ts';
+import { RESOURCES, TERRAIN, primaryOf } from './terrain.ts';
 import { TOOLS, TOOL_ORDER, TOOL_PRIORITY } from './works.ts';
 import { seedFrom } from './rng.ts';
-import { CAMP_RADIUS, HARVEST_GOAL, createGame, endTurn, refreshVision } from './state.ts';
+import {
+  CAMP_RADIUS,
+  HARVEST_GOAL,
+  createGame,
+  endTurn,
+  makeCamp,
+  refreshVision,
+  workableTiles,
+} from './state.ts';
 
 const SEEDS = ['thea', 'nomad', 'ash', 'quarry', '冬岭'];
 
@@ -160,23 +168,60 @@ test('发工具时铁器排在石器前面', () => {
   assert.deepEqual([...TOOL_PRIORITY].sort(), all, 'TOOL_PRIORITY 漏了工具');
 });
 
-test('看见矿脉就把那种资源计进 HUD，不用等采到手', () => {
+/** 离 h 正好 d 格、而且站得上去的一块地 */
+function standAt(g: ReturnType<typeof createGame>, h: { q: number; r: number }, d: number) {
+  for (let i = 0; i < g.map.tiles.length; i += 1) {
+    const x = hexOfIndex(g.map, i);
+    if (distance(x, h) !== d) continue;
+    if (TERRAIN[g.map.tiles[i].terrain].moveCost != null) return x;
+  }
+  throw new Error(`矿脉周围 ${d} 格找不到站得住的地方`);
+}
+
+test('远远看见只知道有东西，走到跟前才知道是什么', () => {
   /*
-   * 发现铁矿那一刻 HUD 就该多出一行。不这样的话，玩家在地图上看到
-   * 一个陆生的符号，资源栏里却没有任何东西能对应得上。
+   * 看见和探查是两档信息。资源栏要等**探查**才加那一行 ——
+   * 看见时就加，等于把 ? 的答案直接写在了资源栏里。
    */
   const g = createGame({ seed: 'thea' });
-  assert.ok(!g.seenResources.includes('iron'), '开局就认得铁了？');
-
   const idx = g.map.tiles.findIndex((t) => t.deposit === 'iron');
   assert.ok(idx >= 0, '这张图上没有铁矿，测试前提不成立');
+  const vein = hexOfIndex(g.map, idx);
+  const tile = g.map.tiles[idx];
 
-  // 把队伍挪到矿脉上，重算视野
-  g.party.at = hexOfIndex(g.map, idx);
+  // 站在两格外：看得见，但不在采集半径里
+  g.party.at = standAt(g, vein, 2);
   refreshVision(g);
+  assert.ok(tile.explored, '两格外应该看得见');
+  assert.equal(tile.surveyed, false, '还没走到跟前就探查了');
+  assert.ok(!g.seenResources.includes('iron'), '没探查，资源栏却已经泄露了答案');
 
-  assert.ok(g.seenResources.includes('iron'), '看见铁矿了，HUD 却还没把它列出来');
-  assert.equal(g.stock.iron, 0, '只是看见，不该白给资源');
+  // 走到旁边一格：游荡时路过也算探查
+  g.party.at = standAt(g, vein, 1);
+  refreshVision(g);
+  assert.equal(tile.surveyed, true, '走到旁边了还没探查');
+  assert.ok(g.seenResources.includes('iron'), '探查到铁了，资源栏却没把它列出来');
+  assert.equal(g.stock.iron, 0, '只是探查，不该白给资源');
+
+  // 走远了也不会忘
+  g.party.at = standAt(g, vein, 4);
+  refreshVision(g);
+  assert.equal(tile.surveyed, true, '走开以后又变回未探查了');
+});
+
+test('能派工的格子一定已经探查过', () => {
+  /*
+   * 这条不变量靠"探查半径 = 采集半径"成立，没有任何显式检查。
+   * 哪天两个半径被分开，这里会先炸 —— 否则症状是派了人才发现
+   * 那块地在产一种玩家从没见过的资源。
+   */
+  for (const seed of ['thea', 'nomad', 'ash', 'quarry']) {
+    const g = createGame({ seed });
+    makeCamp(g);
+    for (const h of workableTiles(g)) {
+      assert.ok(tileAt(g.map, h)!.surveyed, `${seed}: 作业格 ${h.q},${h.r} 还没探查`);
+    }
+  }
 });
 
 test('派人到矿脉格上，结算时真的进库存', () => {
@@ -192,12 +237,21 @@ test('派人到矿脉格上，结算时真的进库存', () => {
   // 直接把营地摆到矿脉旁边，省掉一路走过去
   const spot = { q: vein.q + 1, r: vein.r };
   g.party.at = spot;
-  g.camp = { at: spot, crew: { [`${vein.q},${vein.r}`]: 5 }, order: [] };
-  g.party.people = 5;
+  const k = `${vein.q},${vein.r}`;
+  g.camp = { at: spot, crew: { [k]: 2 }, order: [k, k] };
+  g.party.people = 2;
   tileAt(map, vein)!.progress = HARVEST_GOAL - 1;
 
   const before = g.stock.iron;
   endTurn(g);
   assert.ok(g.stock.iron > before, `铁没进库存：${before} → ${g.stock.iron}`);
   assert.ok(g.seenResources.includes('iron'), '采到铁了，HUD 却还没把它列出来');
+});
+
+test('矿脉符号和它产的资源符号是同一个', () => {
+  // 地图上画矿脉符号，资源栏和采集面板画资源符号。两边不一致的话，
+  // 玩家会以为是两种东西 —— 黏土就曾经是地图上 ▱、资源栏里 ▰
+  for (const [id, d] of Object.entries(DEPOSITS)) {
+    assert.equal(d.glyph, RESOURCES[d.res].glyph, `${id} 的符号和 ${d.res} 不一致`);
+  }
 });

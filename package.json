@@ -12,7 +12,8 @@
     "map": "node --experimental-strip-types scripts/dump-map.ts",
     "typecheck": "tsc --noEmit",
     "sim": "node --experimental-strip-types scripts/sim.ts",
-    "veins": "node --experimental-strip-types scripts/veins.ts"
+    "veins": "node --experimental-strip-types scripts/veins.ts",
+    "balance": "node --experimental-strip-types scripts/balance.ts"
   },
   "dependencies": {
     "react": "^19.2.8",

@@ -50,6 +50,8 @@ export const STRINGS = {
     crafting: { en: 'Crafting', zh: '制作' },
   },
   perHarvest: { en: 'Per harvest', zh: '每次采集' },
+  /** 有矿脉但还没走到跟前。面板上只说有东西，不说是什么 */
+  unsurveyed: { en: 'Something here — walk next to it to find out', zh: '有东西，走到旁边才知道是什么' },
   shortage: { en: 'Shortage', zh: '短缺' },
   upkeep: { en: 'Upkeep', zh: '消耗' },
   hintRoam: {

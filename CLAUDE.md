@@ -4,8 +4,10 @@ A hex-grid survival game on a big procedural map. React 19 + Vite, fully
 static — no backend, no network requests. Core logic in TypeScript, React
 components in JSX.
 
-Gameplay and directory layout are in `README.md`. This file records **why each
-decision was made**, and **what goes wrong if you undo it**.
+Player-facing rules are in `docs/MANUAL.md`; the technical reference, the
+balance model and **the to-do list** are in `docs/DEVELOPMENT.md`. This file
+records **why each decision was made**, and **what goes wrong if you undo it**.
+When a rule changes, update all three.
 
 Source comments are in Chinese; these docs are in English.
 
@@ -32,7 +34,9 @@ src/game/            portable boundary: drops into any React project as-is
     SaveControls     new game / save / load
 src/App.jsx          dev shell, thrown away on integration
 scripts/             dump-map.ts prints an ASCII map, sim.ts runs the economy
-                     ledger, veins.ts measures deposit density by distance
+                     ledger, veins.ts measures deposit density by distance,
+                     balance.ts runs the five-part balance check
+docs/                MANUAL.md (player rules), DEVELOPMENT.md (tech + to-do)
 ```
 
 ## Settled rules
@@ -125,31 +129,64 @@ One artefact worth knowing: iron thins out again past distance 30, because the
 map's radial falloff turns the outer rim into coast and lowland, so there are
 barely any hills left out there to put it in.
 
-**Resources appear in the HUD once the player has held some *or seen a deposit
-of it*** (`state.seenResources`, append-only, fed by `refreshVision`). Six rows
-do not fit a phone in portrait, and a row reading 0 for the first twenty turns
-is noise. Discovery rather than acquisition is the trigger because spotting an
-iron vein is the moment the player needs the legend: otherwise there is a symbol
-on the map with nothing in the HUD that corresponds to it. It is stored rather
-than derived from `stock > 0`, because a derived row would vanish the moment the
-player spends the last of something and shove everything below it around.
+**Seeing a deposit and surveying it are two different things.** Sight reveals
+that a tile *has* a deposit (drawn as `?`); the tile is `surveyed` — and the
+deposit identified — only once the party has been within `workRadius()` of it,
+roaming or camped. `surveyed` is append-only, like `explored`.
 
-**A deposit tile draws the deposit glyph in the centre, not the terrain glyph,
-plus an inset ring in the deposit's colour.** A hex has exactly three bands and
-two of them are taken: crew dots sit at `y = -0.5s` (and at five crew that dark
-pad spans the full width of the tile), the progress bar at `y = +0.42s`. **Only
-the centre is never drawn over.** The first version put the deposit in the top
-right corner, where the crew pad covered it — and covered it precisely on the
-tiles the player had assigned people to. Replacing the terrain glyph loses
-nothing, because terrain is already carried by the fill colour, while a deposit
-can be known *only* from this symbol.
+**The survey radius *is* the work radius — one function, `workRadius()`.** That
+is what guarantees you can never assign someone to an unsurveyed tile: every
+workable tile is next to the camp, the camp is where the party stands, and
+`refreshVision()` has already surveyed that ring. There is no explicit check
+anywhere, only that shared number and a test. Split the two radii and the symptom
+is a worker harvesting a resource the player has never been shown.
 
-The ring exists for a different job: it starts drawing at `s >= 9`, below the
-glyph threshold, so veins are still findable when the map is zoomed out to scan
-for them. Deposit glyphs also draw smaller than terrain glyphs (`0.5s` vs
-`0.8s`) and prefer outline forms — terrain symbols are hairline (`·` `♣` `∩`)
-and a solid shape at the same size reads as a colour block rather than a mark.
-Clay was `▰` and had to become `▱` for exactly that reason.
+**Resources appear in the HUD once the player has held some or *surveyed* a
+deposit of it** (`state.seenResources`, append-only). Six rows do not fit a
+phone in portrait, and a row reading 0 for twenty turns is noise. The trigger
+was briefly "seen", which put the answer to every `?` straight into the resource
+bar — it has to be survey. `describeHex()` hides unsurveyed deposits from the
+tile panel for the same reason, yields included. The list is stored rather than
+derived from `stock > 0`, because a derived row would vanish the moment the
+player spends the last of something.
+
+**Inside a hex, every element has a fixed slot (`SLOT` in `draw.ts`), and
+nothing overlaps.** Terrain glyph a little above centre on *every* tile, deposit
+slot below it, progress bar below that, crew bars around the edge. The terrain
+glyph sits high even on tiles with no deposit, or tiles with one would jump.
+
+This took three tries. The deposit marker started in the top-right corner, where
+the crew dots' dark pad covered it — on exactly the tiles that had people on
+them. It then replaced the terrain glyph in the centre with a coloured inset ring
+for zoomed-out scanning; the ring then had to go when crew moved to edge bars,
+because both lived in the same inset band. Zoomed-out scanning is now a dot in
+the deposit slot (`9 ≤ s < 20`), which needs no band of its own.
+
+Deposit glyphs are drawn smaller than terrain glyphs and prefer outline forms:
+terrain symbols are hairline (`·` `♣` `∩`), and a solid shape at the same weight
+reads as a colour block. Clay was `▰` and became `▱`. **A deposit's glyph must
+equal its resource's glyph** — clay once showed `▱` on the map and `▰` in the
+HUD; a test now checks it.
+
+**Crew are six bars along the six edges, and that is why the cap's ceiling is
+6.** One bar per person makes the count readable without digits; a seventh
+person would have nowhere to go, so `MAX_CREW_PER_TILE = 6` is geometric, not a
+balance number. The live cap is `crewCap()`, starting at `BASE_CREW_CAP = 2`.
+Bars fill clockwise from the upper-right edge on every tile (a start edge that
+followed the camp's direction could not be counted at a glance), and leave a gap
+at each corner so five and six bars look different. Locked slots are dashed:
+hatching or a wave cannot be seen on a bar two or three pixels thick. **Bars
+appear only on tiles with someone on them**; empty work tiles get the faint
+outline. Bars on every work tile filled the whole ring the moment you camped,
+and the tiles actually being worked stopped standing out.
+
+**Why the base cap is 2 is a measurement, not a taste** — see the balance model
+in `docs/DEVELOPMENT.md`. At cap 5 the start camp feeds about 45 people and no
+run ever reaches that, so there is never a reason to leave; at 2 the camp fills
+around turn 30. Below 15 people the cap changes nothing, because start rings are
+mostly grassland with slots to spare. Lowering the cap does not touch old saves'
+crews by itself — `enforceCrewCap()` runs on load and withdraws the
+latest-deployed workers first, the same order `trimCrew()` uses on a death.
 
 **Tool display order and tool handout order are two different lists.**
 `TOOL_ORDER` is the crafting menu, cheapest tier first; `TOOL_PRIORITY` is who
@@ -158,9 +195,8 @@ were one list at first, which put an unmakeable iron axe at the top of the
 crafting page on turn one.
 
 This also makes adding resources self-resolving — a new terrain's primary yield
-decides which tools reach it, with no separate lookup table to maintain. The
-current consequence is that hills and mountains (primary stone) have no tool at
-all until a pick exists.
+decides which tools reach it, with no separate lookup table to maintain. Hills
+and mountains (primary stone) have exactly one tool, the iron pick.
 
 **`yields` is "output per completed bar", not per turn.** Each person advances
 20 per turn against a goal of 40, so over time **one person completes 0.5
@@ -312,6 +348,17 @@ in landscape lands. It was missed because the panel had been tested at 1000px,
 where squeezing leaves 732 — twelve pixels clear. **After changing anything
 layout-related, test one width on each side of the threshold, not just one.**
 
+**Any script that drives `endTurn()` must answer events.** `endTurn` refuses
+to advance while an event is pending. `scripts/sim.ts` never answered them, so
+from the day events were added it froze on the first one — the turn number
+stopped, and every later row was a copy. It printed plausible numbers the whole
+time. `balance.ts` throws if a turn fails to advance; do the same in anything new.
+
+**A balance tool must not go through the cap it is measuring.** `balance.ts`
+compares per-tile caps 2, 3 and 5; driving it through `assign()` would clamp
+every variant to the real cap of 2 and print three identical rows. It places
+workers itself.
+
 **The shared `--panel` colour is translucent.** That is for small panels floating
 over a map corner. A panel that covers the whole area (the camp panel in the
 narrow layout, or in overlay mode) must be opaque, or the map and status strip
@@ -329,6 +376,14 @@ show straight through and text lands on text.
 - Vite does not read the `PORT` environment variable by default; `vite.config.js`
   wires it up. Without that it silently walks to the next free port and external
   tooling cannot reach it.
+- **A dev server started with the Browser pane's `preview_start` is stopped when
+  the assistant's turn ends.** If the user wants to play with it, start
+  `npm run dev` as a background shell task instead, then point the pane at
+  `localhost:5173`.
+- **The Browser pane's screenshots are a 1.5× crop of the page; clicks take CSS
+  pixels.** Something drawn at (697, 470) in a screenshot is clicked at
+  (465, 313). Clicking at screenshot coordinates lands somewhere else, silently.
+  Check `window.innerWidth` and `devicePixelRatio` if clicks seem to do nothing.
 
 ## When integrating into dope-website
 

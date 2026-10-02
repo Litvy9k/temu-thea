@@ -34,6 +34,13 @@ export interface Tile {
    * 同样是山地，有矿的那一块才值得跑过去，而且得先探明才知道。
    */
   deposit: DepositId | null;
+  /**
+   * 走到过采集半径之内。只增不减，和 explored 一样是记忆。
+   *
+   * 和 explored 是两档信息：explored 只知道这块地是什么地形、上面有没有矿脉，
+   * surveyed 才知道矿脉是什么。没有矿脉的格子也会被标上，只是没有可见差别。
+   */
+  surveyed: boolean;
 }
 
 export interface GameMap {
@@ -236,6 +243,7 @@ export function generateMap(opts: MapOptions): GameMap {
       visible: false,
       progress: 0,
       deposit: null,
+      surveyed: false,
     };
   }
 

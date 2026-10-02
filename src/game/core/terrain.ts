@@ -19,7 +19,8 @@ export const RESOURCES: Record<ResourceId, { label: { en: string; zh: string }; 
   food: { label: { en: 'Food', zh: '食物' }, glyph: '✦' },
   wood: { label: { en: 'Wood', zh: '木材' }, glyph: '❙' },
   stone: { label: { en: 'Stone', zh: '石料' }, glyph: '◆' },
-  clay: { label: { en: 'Clay', zh: '黏土' }, glyph: '▰' },
+  // 和地图上的黏土坑用同一个符号。改矿脉符号时漏了这里，一种资源有过两个符号
+  clay: { label: { en: 'Clay', zh: '黏土' }, glyph: '▱' },
   hide: { label: { en: 'Hide', zh: '兽皮' }, glyph: '◗' },
   iron: { label: { en: 'Iron', zh: '铁' }, glyph: '◈' },
 };

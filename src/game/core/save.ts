@@ -11,7 +11,7 @@
  *            否则以后一动地形表或噪声参数，所有老存档的地图都会悄悄变样
  */
 import type { GameMap, Tile } from './map.ts';
-import { type GameState, type Stock, fillStock, refreshVision } from './state.ts';
+import { type GameState, type Stock, enforceCrewCap, fillStock, refreshVision } from './state.ts';
 import type { DepositId } from './deposits.ts';
 import { type ResourceId, RESOURCE_IDS, type TerrainId } from './terrain.ts';
 import { fillTools } from './works.ts';
@@ -63,6 +63,10 @@ const TERRAIN_CODES: readonly TerrainId[] = [
 /**
  * 矿脉的字符编码。和地形一样**只能往后追加**。
  * '.' 不在表里，它表示"这格没有矿脉"，绝大多数格子都是它。
+ *
+ * **大小写记探查状态**：大写是已探查，小写是还没探查。不多占一个字节，
+ * 而且在这个机制出现之前存的档全是大写，读回来就是"全都探查过"——
+ * 不会把玩家已经知道的东西又藏起来，也就不用提版本号。
  */
 const DEPOSIT_CODES: readonly DepositId[] = ['clay', 'game', 'iron'];
 
@@ -141,7 +145,8 @@ export function serialize(state: GameState): string {
     } else {
       const dc = DEPOSIT_CODES.indexOf(tile.deposit);
       if (dc < 0) throw new Error(`deposit "${tile.deposit}" has no code; add it to DEPOSIT_CODES`);
-      deposit += String.fromCharCode(FIRST_CODE + dc);
+      const ch = String.fromCharCode(FIRST_CODE + dc);
+      deposit += tile.surveyed ? ch : ch.toLowerCase();
     }
   }
 
@@ -243,10 +248,10 @@ export function parseSave(text: string): GameState {
 
     // 老存档没有这一列，整张图就是没矿脉 —— 能读回来，只是那局没有铁
     const dchar = m.deposit?.[i];
-    const dep =
-      dchar == null || dchar === NO_DEPOSIT
-        ? null
-        : (DEPOSIT_CODES[dchar.charCodeAt(0) - FIRST_CODE] ?? null);
+    const hasDep = dchar != null && dchar !== NO_DEPOSIT;
+    const dep = hasDep ? (DEPOSIT_CODES[dchar.toUpperCase().charCodeAt(0) - FIRST_CODE] ?? null) : null;
+    // 小写 = 还没探查。没有矿脉的格子不记这一位，读回来由 refreshVision 按队伍位置补上
+    const surveyed = hasDep ? dchar === dchar.toUpperCase() : false;
 
     tiles[i] = {
       terrain: id,
@@ -255,6 +260,7 @@ export function parseSave(text: string): GameState {
       visible: false,
       progress: m.progress?.[i] ?? 0,
       deposit: dep,
+      surveyed,
     };
   }
 
@@ -311,6 +317,8 @@ export function parseSave(text: string): GameState {
     version: 0,
   };
 
+  // 每格上限从 5 降到 2 之前存的档，一格上可能站着更多人
+  enforceCrewCap(state);
   refreshVision(state);
   return state;
 }

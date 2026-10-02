@@ -13,9 +13,9 @@ import { TERRAIN, type TerrainId } from '../core/terrain.ts';
 import { DEPOSITS, yieldsOf } from '../core/deposits.ts';
 import {
   HARVEST_GOAL,
-  MAX_CREW_PER_TILE,
   type GameState,
   crewAt,
+  crewCap,
   toolAllocation,
   workRateAt,
 } from '../core/state.ts';
@@ -36,9 +36,14 @@ export const COLORS = {
   /** 可派工但还没派人的地格 */
   workable: 'rgba(255, 200, 140, 0.5)',
   crew: '#ffd9a0',
-  /** 拿到工具的人。换色而不是加符号 —— 一格最多 5 个点，颜色一眼能数 */
+  /** 拿到工具的人。换色而不是加符号 —— 一格最多 6 根条，颜色一眼能数 */
   crewGeared: '#7ce6be',
-  crewPad: 'rgba(8, 14, 18, 0.75)',
+  /** 还能再派人的空位：和人同色，但压暗 */
+  crewOpen: 'rgba(255, 217, 160, 0.3)',
+  /** 还没解锁的位置，画成虚线 */
+  crewLocked: 'rgba(255, 255, 255, 0.2)',
+  /** 没探查过的矿位：? 和缩远后的灰点 */
+  unsurveyed: '#c9cfd4',
   barBack: 'rgba(0, 0, 0, 0.55)',
   barFill: '#7ce6be',
 };
@@ -80,11 +85,10 @@ export function drawScene(
 
   const lit = new Map<TerrainId, Path2D>();
   const dim = new Map<TerrainId, Path2D>();
-  const glyphs: { x: number; y: number; ch: string; ink: string; dim: boolean }[] = [];
-  // 矿脉符号画得比地形符号小，所以得单收一笔（换 font 是批量的）
-  const veinGlyphs: { x: number; y: number; ch: string; ink: string; dim: boolean }[] = [];
-  // 有矿脉的格子单收一笔，要在格线之后、符号之前描一圈内边
-  const veined: { p: { x: number; y: number }; ink: string; dim: boolean }[] = [];
+  // 三批符号：地形符号、矿位符号（含 ?）、缩远后的矿位色点。字号不同，所以分开收
+  const glyphs: Mark[] = [];
+  const veinMarks: Mark[] = [];
+  const veinDots: Mark[] = [];
 
   for (let row = rowMin; row <= rowMax; row += 1) {
     for (let col = colMin; col <= colMax; col += 1) {
@@ -101,35 +105,27 @@ export function drawScene(
       }
       addHex(path, p.x, p.y, shape);
 
-      /*
-       * 有矿脉的格子，中间画的是**矿脉符号而不是地形符号**。
-       *
-       * 一个格子上只有三条带：顶上是人力点（5 人时那条暗底横跨整个格宽），
-       * 底下是采集进度条，只有正中永远没人踩。最早把矿脉摆在右上角，
-       * 结果恰好被人力点的暗底盖住 —— 而且偏偏是派了人的格子才会挡。
-       *
-       * 换掉地形符号不丢信息：地形本来就由底色说了算，而矿脉是这一格上
-       * **只能靠这个符号知道**的东西。稀的那样该占位置好的那一块。
-       */
+      // 地形符号**永远**偏上，有没有矿脉都一样 —— 否则有矿的格子符号会往上跳一下，
+      // 整张图的节奏就乱了
       if (s >= 13) {
         const t = TERRAIN[tile.terrain];
-        const d = tile.deposit ? DEPOSITS[tile.deposit] : null;
-        // 矿脉符号替掉地形符号，但画得小：地形符号都是细笔画（· ♣ ∩），
-        // 矿脉符号是实心的，同尺寸会压成一块碍眼的色块。小一号、颜色亮，
-        // 再加外面那圈边，三样加起来已经足够跳出来了
-        (d ? veinGlyphs : glyphs).push({
-          x: p.x,
-          y: p.y,
-          ch: d ? d.glyph : t.glyph,
-          ink: d ? d.ink : t.ink,
-          dim: !tile.visible,
-        });
+        glyphs.push({ x: p.x, y: p.y + s * SLOT.terrainY, ch: t.glyph, ink: t.ink, dim: !tile.visible });
       }
 
-      // 内边框比符号早一步出现：缩到看不见符号的尺度时，它是在大图上
-      // 一眼扫到矿脉的唯一办法 —— 找矿本来就是要先拉远了看
-      if (s >= 9 && tile.deposit) {
-        veined.push({ p, ink: DEPOSITS[tile.deposit].ink, dim: !tile.visible });
+      if (tile.deposit) {
+        // 没探查的只知道"有东西"：? 和灰点。探查过才显出是哪种矿
+        const d = DEPOSITS[tile.deposit];
+        const mark = {
+          x: p.x,
+          y: p.y + s * SLOT.veinY,
+          ch: tile.surveyed ? d.glyph : '?',
+          ink: tile.surveyed ? d.ink : COLORS.unsurveyed,
+          dim: !tile.visible,
+        };
+        // 矿位符号只有 0.36s，格子小于 20px 时就只剩几个像素、认不出形状了。
+        // 那时改画一个点 —— 点在任何尺寸下都看得见，拉远扫图找矿靠的就是它
+        if (s >= 20) veinMarks.push(mark);
+        else if (s >= 9) veinDots.push(mark);
       }
     }
   }
@@ -152,50 +148,17 @@ export function drawScene(
     for (const bucket of [lit, dim]) for (const path of bucket.values()) ctx.stroke(path);
   }
 
-  // 矿脉的内边框。按颜色分批 —— 一张图上最多三种，每帧只切三次 strokeStyle
-  if (veined.length) {
-    const inner = corners(0, 0, s * VEIN_INSET);
-    const byInk = new Map<string, Path2D>();
-    for (const v of veined) {
-      // 压暗的和亮的分开放，否则要么整批打透明度要么都不打
-      const k = v.dim ? `${v.ink}|dim` : v.ink;
-      let path = byInk.get(k);
-      if (!path) {
-        path = new Path2D();
-        byInk.set(k, path);
-      }
-      addHex(path, v.p.x, v.p.y, inner);
-    }
-    ctx.lineWidth = Math.max(1, s * 0.055);
-    for (const [k, path] of byInk) {
-      const [ink, isDim] = k.split('|');
-      ctx.globalAlpha = isDim ? 0.3 : 0.75;
-      ctx.strokeStyle = ink;
-      ctx.stroke(path);
-    }
-    ctx.globalAlpha = 1;
-  }
+  drawMarks(ctx, glyphs, s * SLOT.terrainFont, 0.35);
+  drawMarks(ctx, veinMarks, s * SLOT.veinFont, 0.45);
 
-  if (glyphs.length) {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `${Math.round(s * 0.8)}px ${MONO}`;
-    for (const g of glyphs) {
-      ctx.globalAlpha = g.dim ? 0.35 : 1;
-      ctx.fillStyle = g.ink;
-      ctx.fillText(g.ch, g.x, g.y);
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  if (veinGlyphs.length) {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `${Math.round(s * 0.5)}px ${MONO}`;
-    for (const g of veinGlyphs) {
-      ctx.globalAlpha = g.dim ? 0.4 : 1;
-      ctx.fillStyle = g.ink;
-      ctx.fillText(g.ch, g.x, g.y);
+  if (veinDots.length) {
+    const r = Math.max(1.5, s * 0.1);
+    for (const m of veinDots) {
+      ctx.globalAlpha = m.dim ? 0.45 : 1;
+      ctx.fillStyle = m.ink;
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
@@ -231,12 +194,55 @@ function outlineHex(
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
 /**
- * 矿脉内边框缩进到格子的几成。
+ * 一个格子里的竖向布局，单位是格子尺寸 s（中心到顶点的距离）：
  *
- * 0.78 是量出来的：再大就和格线粘成一条，再小就撞上正中的符号。
- * 人力点那条暗底会盖掉它上半部分的一截，但它是闭合图形，残的也认得出来。
+ *   terrainY  地形符号，所有格子都偏上
+ *   veinY     矿位：矿脉符号、? 或缩远时的色点
+ *   barY      采集进度条
+ *
+ * 外面一圈是六根人力指示条，缩进到 BAR_INSET。所以里面三样都得比以前小：
+ * 进度条原来宽 1.05s，现在会撞上左下、右下那两根条，缩到 0.62s。
  */
-const VEIN_INSET = 0.78;
+const SLOT = {
+  terrainY: -0.16,
+  terrainFont: 0.62,
+  veinY: 0.24,
+  veinFont: 0.36,
+  barY: 0.44,
+  barW: 0.62,
+  barH: 0.07,
+} as const;
+
+/**
+ * 人力指示条贴着的那圈六边形，缩到格子的几成；以及每根条在角上留多少空。
+ *
+ * 留空是为了六根条读起来是"六个"而不是"一圈"：连成环的话，五根和六根
+ * 只差一截，数不出来。每根只画边长中间的 70%。
+ */
+const BAR_INSET = 0.8;
+const BAR_GAP = 0.15;
+
+interface Mark {
+  x: number;
+  y: number;
+  ch: string;
+  ink: string;
+  dim: boolean;
+}
+
+/** 同一字号的一批符号。dimAlpha 是看不见（只是记得）时的透明度 */
+function drawMarks(ctx: CanvasRenderingContext2D, marks: Mark[], size: number, dimAlpha: number): void {
+  if (!marks.length) return;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${Math.round(size)}px ${MONO}`;
+  for (const m of marks) {
+    ctx.globalAlpha = m.dim ? dimAlpha : 1;
+    ctx.fillStyle = m.ink;
+    ctx.fillText(m.ch, m.x, m.y);
+  }
+  ctx.globalAlpha = 1;
+}
 
 function addHex(path: Path2D, cx: number, cy: number, shape: [number, number][]): void {
   path.moveTo(cx + shape[0][0], cy + shape[0][1]);
@@ -279,22 +285,44 @@ function drawCampSite(
   s: number,
   workable: Axial[],
 ): void {
-  // 可派工的格子描个边，告诉玩家"这一圈能点"
-  const outline = new Path2D();
-  for (const h of workable) {
-    const p = at(h);
-    addHex(outline, p.x, p.y, shape);
-  }
-  ctx.strokeStyle = COLORS.workable;
-  ctx.lineWidth = 1.5;
-  ctx.stroke(outline);
+  /*
+   * 派了人的格子画六根指示条；还没派人的只描一圈淡边，告诉玩家"这一格能点"。
+   *
+   * 空格子也画满一整套（两根空位、四根虚线）的话，扎营那一刻六格全是条，
+   * 真正有人干活的那几格反而不显眼 —— 指示条该是"这里有人"的标记，
+   * 不是"这里能派人"的标记。格子太小画不下条时，全都退回到淡边。
+   */
+  const bars = s >= 12;
+  const staffed = bars ? workable.filter((h) => crewAt(state, h) > 0) : [];
+  const empty = bars ? workable.filter((h) => crewAt(state, h) === 0) : workable;
 
-  // 工具分配要看全营地的部署顺序，整帧算一次
-  const alloc = toolAllocation(state);
-  for (const h of workable) {
-    const rate = workRateAt(state, h, alloc);
-    if (rate.crew === 0 && rate.progress === 0) continue;
-    drawTileWork(ctx, at(h), s, rate.crew, rate.equipped, rate.progress);
+  if (staffed.length) drawCrewBars(ctx, state, at, s, staffed);
+  if (empty.length) {
+    const outline = new Path2D();
+    for (const h of empty) {
+      const p = at(h);
+      addHex(outline, p.x, p.y, shape);
+    }
+    ctx.strokeStyle = COLORS.workable;
+    ctx.lineWidth = 1.5;
+    ctx.stroke(outline);
+  }
+
+  // 进度条：派了人或者条上有存量的格子才画
+  if (s >= 12) {
+    const w = s * SLOT.barW;
+    const bh = Math.max(2, s * SLOT.barH);
+    for (const h of workable) {
+      const tile = tileAt(state.map, h);
+      if (!tile || (crewAt(state, h) === 0 && tile.progress === 0)) continue;
+      const p = at(h);
+      const x = p.x - w / 2;
+      const y = p.y + s * SLOT.barY;
+      ctx.fillStyle = COLORS.barBack;
+      ctx.fillRect(x, y, w, bh);
+      ctx.fillStyle = COLORS.barFill;
+      ctx.fillRect(x, y, (w * tile.progress) / HARVEST_GOAL, bh);
+    }
   }
 
   // 营地
@@ -313,52 +341,65 @@ function drawCampSite(
 }
 
 /**
- * 一格上的人力和采集进度。
+ * 每个作业格六根贴边的指示条，一根一个人。
  *
- * 人用点表示不用数字：一眼能数出来的量级（上限 5）用点比读数字快，
- * 而且不用为了塞下数字去挑字号。
+ * 六条边配六个工位，一一对应，所以人数不用读数字，看一眼就知道。
+ * 从右上那条边起顺时针填（corners() 从顶点开始顺时针排，第 i 条边是
+ * 第 i → i+1 个顶点），像表盘从 12 点走起。每格起点固定，不随营地方向变 ——
+ * 起点一变就数不出来了。
+ *
+ * 四种状态，按顺序排：拿着工具的人（绿）、空手的人、还能再派的空位、
+ * 没解锁的位置（虚线）。拿工具的排在最前，因为工具本来就是按部署顺序发的。
+ *
+ * 不可用的位置用虚线，不用条纹或波浪：条只有两三个像素粗，斜纹和波浪
+ * 在这个尺寸下都会糊成一条灰线，虚线还认得出来。
  */
-function drawTileWork(
+function drawCrewBars(
   ctx: CanvasRenderingContext2D,
-  p: { x: number; y: number },
+  state: GameState,
+  at: (h: Axial) => { x: number; y: number },
   s: number,
-  crew: number,
-  equipped: number,
-  progress: number,
+  workable: Axial[],
 ): void {
-  if (crew > 0 && s >= 14) {
-    const dot = Math.max(2, s * 0.12);
-    const gap = dot * 2.7;
-    const y = p.y - s * 0.5;
-    const x0 = p.x - (gap * (crew - 1)) / 2;
+  const inner = corners(0, 0, s * BAR_INSET);
+  const cap = crewCap(state);
+  const alloc = toolAllocation(state);
 
-    // 先垫一条暗底：点直接压在地形符号上时两者会糊成一团，
-    // 而地形色是随地格变的，靠调点的颜色救不了
-    ctx.fillStyle = COLORS.crewPad;
-    ctx.beginPath();
-    ctx.roundRect(x0 - dot * 2, y - dot * 1.9, gap * (crew - 1) + dot * 4, dot * 3.8, dot * 1.9);
-    ctx.fill();
+  const geared = new Path2D();
+  const bare = new Path2D();
+  const open = new Path2D();
+  const locked = new Path2D();
 
-    // 拿到工具的排在前面 —— 工具是按部署顺序发的，点的排列就是那个顺序
-    for (let i = 0; i < crew; i += 1) {
-      ctx.fillStyle = i < equipped ? COLORS.crewGeared : COLORS.crew;
-      ctx.beginPath();
-      ctx.arc(x0 + gap * i, y, dot, 0, Math.PI * 2);
-      ctx.fill();
+  for (const h of workable) {
+    const p = at(h);
+    const crew = crewAt(state, h);
+    const equipped = alloc.get(key(h))?.equipped ?? 0;
+
+    for (let i = 0; i < 6; i += 1) {
+      const [ax, ay] = inner[i];
+      const [bx, by] = inner[(i + 1) % 6];
+      const path = i < equipped ? geared : i < crew ? bare : i < cap ? open : locked;
+      path.moveTo(p.x + ax + (bx - ax) * BAR_GAP, p.y + ay + (by - ay) * BAR_GAP);
+      path.lineTo(p.x + bx - (bx - ax) * BAR_GAP, p.y + by - (by - ay) * BAR_GAP);
     }
   }
 
-  if (s >= 12) {
-    const w = s * 1.05;
-    const h = Math.max(2, s * 0.1);
-    const x = p.x - w / 2;
-    const y = p.y + s * 0.42;
+  const thick = Math.max(2, s * 0.09);
+  ctx.lineCap = 'butt';
 
-    ctx.fillStyle = COLORS.barBack;
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = COLORS.barFill;
-    ctx.fillRect(x, y, (w * progress) / HARVEST_GOAL, h);
-  }
+  ctx.lineWidth = Math.max(1, thick * 0.6);
+  ctx.setLineDash([Math.max(2, s * 0.06), Math.max(2, s * 0.06)]);
+  ctx.strokeStyle = COLORS.crewLocked;
+  ctx.stroke(locked);
+  ctx.setLineDash([]);
+
+  ctx.lineWidth = thick;
+  ctx.strokeStyle = COLORS.crewOpen;
+  ctx.stroke(open);
+  ctx.strokeStyle = COLORS.crew;
+  ctx.stroke(bare);
+  ctx.strokeStyle = COLORS.crewGeared;
+  ctx.stroke(geared);
 }
 
 function drawParty(
@@ -383,21 +424,26 @@ export function describeHex(state: GameState, h: Axial | null, lang: 'en' | 'zh'
   if (!tile || !tile.explored) return null;
 
   const t = TERRAIN[tile.terrain];
-  const yields = yieldsOf(tile.terrain, tile.deposit);
+  // 没探查的矿脉**不能**在面板上漏出来：产出只报地形的，矿脉那一行只写"未探查"。
+  // 规则层不需要这层遮挡 —— 能派工的格子一定探查过（见 workRadius）
+  const known = tile.deposit && tile.surveyed ? tile.deposit : null;
+  const yields = yieldsOf(tile.terrain, known);
 
   return {
     name: t.label[lang],
     // 矿脉单列一行而不是拼进地名："丘陵（铁矿脉）"在窄面板上会折行，
     // 而且它和地形不是同一类信息 —— 地形永远在，矿脉是这一块地特有的
-    deposit: tile.deposit ? DEPOSITS[tile.deposit].label[lang] : null,
-    depositGlyph: tile.deposit ? DEPOSITS[tile.deposit].glyph : null,
+    deposit: known ? DEPOSITS[known].label[lang] : null,
+    depositGlyph: known ? DEPOSITS[known].glyph : null,
+    /** 有矿脉但还没走到跟前 */
+    unsurveyed: Boolean(tile.deposit && !tile.surveyed),
     moveCost: t.moveCost,
     yields,
     coord: key(h),
     progress: tile.progress,
     goal: HARVEST_GOAL,
     crew: crewAt(state, h),
-    crewMax: MAX_CREW_PER_TILE,
+    crewMax: crewCap(state),
     workable: Object.keys(yields).length > 0,
     /** 采集速度的明细，面板直接显示"总量（工具 +N）" */
     rate: workRateAt(state, h),

@@ -8,8 +8,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  BASE_CREW_CAP,
+  MAX_CREW_PER_TILE,
   assign,
+  assignBlocker,
   breakCamp,
+  crewCap,
+  enforceCrewCap,
   buildFacility,
   campSight,
   craftBlocker,
@@ -56,21 +61,21 @@ function tileYielding(g: GameState, res: ResourceId) {
   return h;
 }
 
-test('工具按部署顺序发：3 个人 2 把斧头，前两个拿到', () => {
+test('工具按部署顺序发：2 个人 1 把斧头，先来的拿到', () => {
+  // 每格上限是 2，所以"人比工具多"只能在一格里摆出 2 对 1
   const g = camped();
   const forest = tileYielding(g, 'wood');
 
   assign(g, forest);
   assign(g, forest);
-  assign(g, forest);
-  craftTool(g, 'axe');
   craftTool(g, 'axe');
 
   const rate = workRateAt(g, forest);
-  assert.equal(rate.crew, 3);
-  assert.equal(rate.equipped, 2, '应该正好两个人有斧头');
-  assert.equal(rate.bonus, 20);
-  assert.equal(rate.total, 3 * 20 + 20);
+  assert.equal(rate.crew, 2);
+  assert.equal(rate.equipped, 1, '应该正好一个人有斧头');
+  assert.equal(rate.bonus, 10);
+  // 50 点 = 结算一次再溢出 10 —— 上限 2 之下，溢出只在有工具时才出现
+  assert.equal(rate.total, 2 * 20 + 10);
 });
 
 test('斧头不会发给草原上的人 —— 用不上的地格直接跳过', () => {
@@ -259,4 +264,39 @@ test('派工顺序里的人数和 crew 始终一致', () => {
   for (const k of g.camp!.order) counted[k] = (counted[k] ?? 0) + 1;
   for (const [k, n] of Object.entries(g.camp!.crew)) assert.equal(counted[k], n, `${k} 对不上`);
   assert.ok(tiles.length > 0 && key(tiles[0]).length > 0);
+});
+
+// ---------------------------------------------------------------- 每格上限
+
+test('每格上限：开局 2 人，第三个人派不上去', () => {
+  const g = camped();
+  const grass = tileYielding(g, 'food');
+
+  assert.equal(crewCap(g), BASE_CREW_CAP);
+  for (let i = 0; i < BASE_CREW_CAP; i += 1) assert.ok(assign(g, grass), `第 ${i + 1} 个人派不上去`);
+  assert.equal(assignBlocker(g, grass), 'tileFull');
+  assert.equal(assign(g, grass), false);
+});
+
+test('上限的天花板是 6 —— 六边形只有六条边，地图上画不下第七根指示条', () => {
+  assert.equal(MAX_CREW_PER_TILE, 6);
+  assert.ok(BASE_CREW_CAP <= MAX_CREW_PER_TILE);
+});
+
+test('超编时按部署顺序从后往前撤，先来的保住位置', () => {
+  // 读老存档时会遇到：上限从 5 降到 2 之前，一格上可能站着四个人
+  const g = camped();
+  const grass = tileYielding(g, 'food');
+  const forest = tileYielding(g, 'wood');
+  const kg = key(grass);
+  const kf = key(forest);
+
+  g.camp!.crew = { [kg]: 4, [kf]: 1 };
+  g.camp!.order = [kg, kf, kg, kg, kg];
+  enforceCrewCap(g);
+
+  assert.equal(g.camp!.crew[kg], 2);
+  assert.equal(g.camp!.crew[kf], 1);
+  // 留下的是第 1 和第 3 个部署的人，林子里那个不受影响
+  assert.deepEqual(g.camp!.order, [kg, kf, kg]);
 });

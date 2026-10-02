@@ -8,10 +8,13 @@
  * "一个还算清醒的玩家"。如果连它都会饿死，说明数值不是难，是坏。
  */
 import {
-  MAX_CREW_PER_TILE,
   assign,
+  choiceAllowed,
+  chooseEvent,
   createGame,
   crewAt,
+  crewCap,
+  currentEvent,
   endTurn,
   idleCount,
   makeCamp,
@@ -61,7 +64,7 @@ function reassign() {
     let best = null;
     let bestScore = -1;
     for (const h of tiles) {
-      if (crewAt(game, h) >= MAX_CREW_PER_TILE) continue;
+      if (crewAt(game, h) >= crewCap(game)) continue;
       const y = TERRAIN[tileAt(game.map, h)!.terrain].yields;
       const score = (y[want] ?? 0) * 10 + (y.food ?? 0) + (y.wood ?? 0) + (y.stone ?? 0);
       if (score > bestScore) {
@@ -76,6 +79,14 @@ function reassign() {
 
 console.log('\n回合  人数  闲  食物   木材   石料   收支(食/木/石)');
 for (let i = 0; i < turns; i += 1) {
+  // 事件不处理的话 endTurn 会拒绝推进，之后每一回合都是空转 ——
+  // 加事件系统时这里漏改了，那之后这个脚本的数字从第一个事件起全是假的。
+  // 这里一律选第一个付得起的选项；更像样的策略在 balance.ts 里
+  for (let ev = currentEvent(game); ev; ev = currentEvent(game)) {
+    const idx = ev.choices.findIndex((c) => choiceAllowed(game, c));
+    console.log(`     事件 ${ev.text.zh} → ${ev.choices[idx].label.zh}`);
+    chooseEvent(game, idx);
+  }
   reassign();
   const idle = idleCount(game);
   endTurn(game);

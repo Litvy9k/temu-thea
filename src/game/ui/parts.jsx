@@ -137,6 +137,8 @@ export function TileFacts({ detail, camped, lang }) {
           {detail.depositGlyph} {detail.deposit}
         </div>
       )}
+      {/* 没探查的只说"有东西"。下面那行"每次采集"也只报地形的产出 —— 不然就漏了 */}
+      {detail.unsurveyed && <div className="hg-vein hg-vein--unknown">? {t(lang, 'unsurveyed')}</div>}
 
       {detail.workable && (
         <div className="hg-dim">

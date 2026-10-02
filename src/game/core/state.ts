@@ -13,7 +13,7 @@
  * 这里用原地修改 + version 计数驱动 React 重绘，没有做不可变更新：地图有几千个
  * tile，每走一步整份复制不值当。代价是撤销要靠 snapshot() 显式存快照。
  */
-import { type Axial, distance, equals, key, parseKey, range, reachable, ring } from './hex.ts';
+import { type Axial, distance, equals, key, parseKey, range, reachable } from './hex.ts';
 import { type GameMap, generateMap, tileAt } from './map.ts';
 import { DEPOSITS, type DepositId, yieldsOf } from './deposits.ts';
 import { seedFrom, step } from './rng.ts';
@@ -58,8 +58,26 @@ export const PACKS_MOVE_BONUS = 1;
 export const HARVEST_GOAL = 40;
 /** 每人每回合推进的进度 */
 export const WORK_PER_PERSON = 20;
-/** 一格最多站几个人 */
-export const MAX_CREW_PER_TILE = 5;
+/**
+ * 一格**最多**能站几个人，不管升级到什么程度。
+ *
+ * 定成 6 是因为六边形只有六条边：地图上每个人是一根贴着边的指示条，
+ * 第七个人没地方画。真正生效的上限是 crewCap()，从 BASE_CREW_CAP 起步，
+ * 以后靠设施往这里抬。
+ */
+export const MAX_CREW_PER_TILE = 6;
+/**
+ * 开局时每格的派工上限。
+ *
+ * 定 2 是量出来的（npm run balance 第 3、5 节）：开局那圈地大多是 4–5 格草原，
+ * 上限 2 时最多养活约 18 人；上限 5 时是 45 人，一整局都撞不到顶，
+ * 也就永远没有理由离开出生地。上限 2 让营地在 30 回合左右满员，
+ * 那正是该去找铁器、找更好的地、或者造设施扩编的时候。
+ *
+ * 它不影响前期：15 人以内，各档上限下温饱之外腾出来的人手完全一样 ——
+ * 开局圈里草原多，好地的工位根本没用满。
+ */
+export const BASE_CREW_CAP = 2;
 
 export const START_PEOPLE = 3;
 /**
@@ -248,14 +266,22 @@ export function refreshVision(state: GameState): void {
       if (!tile) continue;
       tile.visible = true;
       tile.explored = true;
-      // 看见矿脉就算认识了这种资源，不用等采到手。
-      // 发现铁矿那一刻 HUD 就多出一行，玩家才知道地图上那个符号是什么
-      if (tile.deposit) noteResource(state, DEPOSITS[tile.deposit].res);
     }
   };
 
   reveal(state.party.at, sightFrom(state, state.party.at));
   if (state.camp) reveal(state.camp.at, campSight(state));
+
+  // 探查：看见只知道"那儿有东西"，走到采集半径之内才知道是什么。
+  // 游荡时路过也算 —— 探查是"走到跟前"，不是"扎营"
+  for (const h of range(state.party.at, workRadius(state))) {
+    const tile = tileAt(state.map, h);
+    if (!tile || tile.surveyed) continue;
+    tile.surveyed = true;
+    // 资源栏在**探查**时才加那一行，不是看见时 —— 看见时就加，等于把 ? 的答案
+    // 直接写在了资源栏里
+    if (tile.deposit) noteResource(state, DEPOSITS[tile.deposit].res);
+  }
 }
 
 // ---------------------------------------------------------------- 移动
@@ -334,10 +360,29 @@ export function workable(tile: { terrain: TerrainId; deposit: DepositId | null }
   return Object.keys(yieldsOf(tile.terrain, tile.deposit)).length > 0;
 }
 
-/** 营地周围一圈里能派人干活的格子。浅滩和山地进不去但能采，所以看的是产出不是通行 */
+/**
+ * 采集半径，同时也是**探查半径**。
+ *
+ * 两者必须是同一个数：这样"派不了人去一块没探查过的地"由几何保证，
+ * 不需要任何额外检查 —— 能派工的格子一定在营地旁边，营地就是队伍所在，
+ * 而队伍旁边这一圈在 refreshVision 里已经探查过了。有测试盯着这条。
+ * 以后扩大半径的设施只改这里，两件事一起变。
+ */
+export function workRadius(_state: GameState): number {
+  return CAMP_RADIUS;
+}
+
+/** 当前每格最多派几个人。以后的扩编设施往这里加，但永远不超过 MAX_CREW_PER_TILE */
+export function crewCap(_state: GameState): number {
+  return Math.min(MAX_CREW_PER_TILE, BASE_CREW_CAP);
+}
+
+/** 营地周围能派人干活的格子。浅滩和山地进不去但能采，所以看的是产出不是通行 */
 export function workableTiles(state: GameState): Axial[] {
   if (!state.camp) return [];
-  return ring(state.camp.at, CAMP_RADIUS).filter((h) => {
+  const r = workRadius(state);
+  return range(state.camp.at, r).filter((h) => {
+    if (equals(h, state.camp!.at)) return false;
     const tile = tileAt(state.map, h);
     return tile != null && workable(tile);
   });
@@ -367,10 +412,11 @@ export function assignBlocker(state: GameState, h: Axial): AssignBlocker {
 
   const tile = tileAt(state.map, h);
   if (!tile || !workable(tile)) return 'notWorkable';
-  if (distance(state.camp.at, h) !== CAMP_RADIUS) return 'notWorkable';
+  const d = distance(state.camp.at, h);
+  if (d < 1 || d > workRadius(state)) return 'notWorkable';
 
   if (idleCount(state) <= 0) return 'noIdle';
-  if (crewAt(state, h) >= MAX_CREW_PER_TILE) return 'tileFull';
+  if (crewAt(state, h) >= crewCap(state)) return 'tileFull';
   return null;
 }
 
@@ -417,6 +463,25 @@ function trimCrew(state: GameState): void {
     const n = state.camp.crew[k] ?? 0;
     if (n <= 1) delete state.camp.crew[k];
     else state.camp.crew[k] = n - 1;
+  }
+}
+
+/**
+ * 把超过每格上限的人撤下来，按部署顺序从后往前撤 —— 和死了人时的 trimCrew
+ * 一个口径：后来的先走，先部署的保住位置和手里的工具。
+ *
+ * 正常游戏里上限只升不降，用不上它；它是给读档用的：上限从 5 降到 2 之前的
+ * 老存档里，一格可能站着四五个人。
+ */
+export function enforceCrewCap(state: GameState): void {
+  if (!state.camp) return;
+  const cap = crewCap(state);
+  for (let i = state.camp.order.length - 1; i >= 0; i -= 1) {
+    const k = state.camp.order[i];
+    const n = state.camp.crew[k] ?? 0;
+    if (n <= cap) continue;
+    state.camp.order.splice(i, 1);
+    state.camp.crew[k] = n - 1;
   }
 }
 
