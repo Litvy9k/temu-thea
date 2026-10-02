@@ -405,11 +405,30 @@ Numbers in this section are provisional; the shapes are agreed.
     winter camp, each built up, visited in turn.
   - A building's effect covers the whole camp ring, never a single tile, so the
     map gains no per-tile icons. A site shows as one marker on the map.
-  - Each site has a limited number of building slots, so one site cannot be
-    grown forever; past that, the party grows through gear.
-  - **A site collapses after 2–3 years (160–240 turns) without a visit.** Seasonal
-    circuits stay standing; a trail of one-off camps clears itself. It also bounds
-    save size.
+  - **Slots: 3 per site to start.** One special building — it takes no slot of
+    its own — opens the site to **6**. With store, workshop, watchtower, crew
+    expansion and radius expansion already five candidates, a new site is a
+    choose-three; the slot opener is the first goal of any site meant to last,
+    and a long-held site ends up with nearly everything. That is the reward for
+    staying.
+  - **Crew expansion and radius expansion are buildings.** `crewCap()` and
+    `workRadius()` read the current site's buildings; with no camp, the survey
+    radius is the base 1. The two still share `workRadius()`, so the
+    "every workable tile is surveyed" invariant holds unchanged.
+  - **Map marker: a slightly smaller grey hexagon inset inside the site tile** —
+    the look the deposit ring had before deposits moved to the glyph slots, now
+    free to reuse. It leaves the terrain glyph and deposit slot alone, and draws
+    from `s ≥ 9`, so the same marker works when zoomed out to scan. Two cases hide
+    it:
+    - the tile is showing crew bars (camped next to the old site with people on
+      it). The bars only cover the middle 70% of each edge, so drawing the frame
+      underneath would leak grey bits through the corner gaps; it is simply not
+      drawn, and reappears once the bars go.
+    - the party is camped on the site itself — the bright `⌂` and ring already
+      say it.
+  - **A site collapses after 2–3 years (160–240 turns) without a visit, and simply
+    disappears — no warning, no ruin.** Seasonal circuits stay standing; a trail
+    of one-off camps clears itself. It also bounds save size.
   - Design rule: a building pays off once the total time spent at that site —
     across every visit — exceeds `cost ÷ gain per turn`.
   - Consequences of moving store, workshop and watchtower to buildings:
@@ -511,7 +530,18 @@ Numbers in this section are provisional; the shapes are agreed.
 - What the two facilities above cost, and in which resources. (Parked by choice.)
   Also whether they become gear or buildings — as buildings they reward
   holding a site, as gear they travel.
-- The list of buildings, what each does, and how many slots a camp has.
+- The list of buildings and what each does (content; the slot mechanism is
+  agreed).
+- Building mechanics, proposed and awaiting a yes:
+  - buildings can be **upgraded in place**, the upgrade taking no extra slot
+    (crew expansion would be 2 → 4 → 6 rather than one +4 building);
+  - buildings can be **demolished**, no refund, with a confirmation;
+  - the slot opener cannot be demolished while slots 4–6 are occupied;
+  - a **visit** means camping on the site; passing by does not count, and every
+    camped turn refreshes it, so an inhabited site never collapses.
+- Selecting a site tile, proposed: outline its work ring faintly and list its
+  buildings in the tile panel. Footprints are never drawn otherwise, so nearby
+  sites do not pile up rings.
 - Whether a site collapses after 2 years or 3.
 - The exact start turn within autumn — measure once seasons exist.
 - Whether the start ring should be guaranteed a stone source, or the lack of one
