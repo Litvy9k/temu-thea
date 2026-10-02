@@ -357,10 +357,13 @@ At cap 5, **wanderers bring 19.6 people per run against 6 from natural growth**.
 3. **Stone decides whether the first 20 turns have a goal.** Without stone in the
    start ring there is nothing to build until you move. That could be a good push
    outward, but nothing on screen says so.
-4. **Cap 2 is the one lever that creates a mid-game ceiling.** At cap 5 the start
-   camp supports about 45 people, which no run reaches; at cap 2 the camp is full
-   around turn 30, which is when moving on, iron tools or more slots should start
-   to matter. This is why `BASE_CREW_CAP` is 2.
+4. **Cap 2 is the one lever that gives a camp a ceiling you actually reach.** At
+   cap 5 the start camp supports about 45 people, which no run reaches, so every
+   site is as good as any other; at cap 2 the camp is full around turn 30. From
+   then on *which* site you hold matters — a slot on shallows feeds 3, on
+   grassland 2 — and iron tools, more slots or a better site are the ways up.
+   This is why `BASE_CREW_CAP` is 2. It is not meant to push the player out:
+   settling for good is a supported way to play.
 5. **Cap 2 slows deposit work.** A vein pays at most once per turn without
    tools: 12 clay for jars is 6 turns on one pit, 3 iron tools about 6 turns.
 6. **Spoilage is a second cap.** Food above 30 rots at 18% a turn, so the 30–40
@@ -369,7 +372,86 @@ At cap 5, **wanderers bring 19.6 people per run against 6 from natural growth**.
 
 ## To do
 
+### Design direction (agreed)
+
+These are settled with the designer and shape everything below.
+
+- **Roaming and settling are both valid for a whole run; the player chooses.**
+  Finding a great spot and staying for good is a first-class way to play, and so
+  is never stopping, and so is moving between a few seasonal camps. Nothing
+  should force any of them.
+- **No soil depletion.** It was proposed as the source of rising pressure and
+  rejected, because it makes roaming mandatory. Long-term pressure comes from
+  seasons and from events instead.
+- **Events will scale with wealth.** The current five events are placeholders
+  for the system. New ones should lean on proportional effects
+  (`stockPct`, `peoplePct`) so a rich camp faces bigger trouble than a lean
+  party. Check each new event's expected value in `npm run balance` section 5.
+
 ### Decided, waiting to be built
+
+Numbers in this section are provisional; the shapes are agreed.
+
+- **Gear and buildings, two kinds of works.**
+  - **Gear** travels with the party: today's store, workshop, watchtower, clay
+    jars and pack frames are all gear and get renamed as such in the UI. Data
+    stays on `state.works`.
+  - **Buildings** belong to a **camp site** — a place on the map — and stay
+    there when the party leaves. Come back, camp on the same tile, and they
+    work again. This is what makes seasonal camps possible: a summer camp and a
+    winter camp, each built up, visited in turn.
+  - A building's effect covers the whole camp ring, never a single tile, so the
+    map gains no per-tile icons. A site shows as one marker on the map.
+  - Each site has a limited number of building slots, so one site cannot be
+    grown forever; past that, the party grows through gear.
+  - **A site collapses after 2–3 years (160–240 turns) without a visit.** Seasonal
+    circuits stay standing; a trail of one-off camps clears itself. It also bounds
+    save size.
+  - Design rule: a building pays off once the total time spent at that site —
+    across every visit — exceeds `cost ÷ gain per turn`.
+- **Data model for sites: buildings live on the site, the camp only points at
+  it.** `map.sites: { at, buildings[], lastVisit }[]`; `camp.site` refers to one.
+  Breaking camp nulls `camp` as today and the site simply stays. Making camp on a
+  tile that has a site attaches to it; a site is created by the first building,
+  so camps that never built anything leave no record. **Never copy buildings
+  between the camp and the site** — the reason gear lives on the party (no
+  stash-and-restore step where a field gets forgotten) applies here too.
+  Cost: a lookup by position when camping and a few markers per frame; about 50
+  bytes per site in a save, so even 100 sites is about 5KB on top of today's 6KB.
+- **Seasons.** 20 turns per season, an 80-turn year, and the run **starts in
+  autumn** so the first winter arrives once the first camp is standing. A year
+  must be long enough that a relocation (about 4–5 turns: break camp, 2–3 turns
+  of travel, settling in) is no more than a quarter of a season. Each season
+  changes a different system, and every effect is on/off rather than a number
+  the player has to multiply:
+  - spring: marsh move cost 3 → 5 (not impassable, so nobody is stranded in a
+    marsh); natural growth happens in spring
+  - summer: sight +1
+  - autumn: seasonal events
+  - winter: fire wood ×3; **all shallows freeze and can be walked on**; ice
+    cannot be camped on
+  - a `season` metric for event conditions
+  - HUD: the current season, turns left in it, and the active effects; ice shows
+    cracks in its last turns
+  - HUD: **projected** next-turn income instead of last turn's, so season effects
+    never have to be computed by hand
+
+  A 20-turn winter at ×3 burns 60 wood against a base cap of 40, so a winter
+  cannot be sat out on stockpile alone: a winter camp needs forest, or more
+  storage. That falls out of the numbers; nothing else enforces it.
+- **Stranded on thawed water.** When the ice melts, a party still on it is on an
+  impassable tile.
+  - A party that **starts its turn** on a thawed shallow may enter other thawed
+    shallows that turn; any other party may not. The exemption covers thawed
+    shallows only — never ocean or mountains, or a stranded party could walk
+    across the sea or over a range. Wading costs 2 moves per tile (impassable
+    tiles have no move cost today; it needs one).
+  - At the **end** of each turn still on such a tile: lose 0–2 people and 10–30%
+    of every resource, rounded up, rolled on `state.rngState`. A party that walks
+    ashore on the first turn after the thaw pays nothing. Small parties die
+    faster than big ones, which is intended.
+  - It is a rule in `endTurn`, like starvation, not an event: event effects are
+    fixed numbers and it offers no choice.
 
 - **A facility that raises the per-tile cap.** Hook: `crewCap()`. Cap ceiling is 6.
   Cost and resource not decided yet.
@@ -382,13 +464,16 @@ At cap 5, **wanderers bring 19.6 people per run against 6 from natural growth**.
 ### Needs a decision
 
 - What the two facilities above cost, and in which resources. (Parked by choice.)
+  Also whether they become gear or buildings — as buildings they reward
+  holding a site, as gear they travel.
+- The list of buildings, what each does, and how many slots a camp has.
+- Whether a site collapses after 2 years or 3.
+- The exact start turn within autumn — measure once seasons exist.
 - Whether the start ring should be guaranteed a stone source, or the lack of one
   left as a push to relocate — and if the latter, how the game tells the player.
 - Whether `?` should be genuinely uncertain. Today a `?` on hills is always iron
   and on forest or tundra always hide; only grassland is ambiguous. More deposit
   types, or overlapping terrains, would fix it.
-- Whether survival pressure should rise over time (seasons, upkeep growth,
-  depletion), since today it drops to zero once camped.
 
 ### Balance follow-ups
 

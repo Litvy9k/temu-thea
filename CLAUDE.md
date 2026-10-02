@@ -182,8 +182,10 @@ and the tiles actually being worked stopped standing out.
 
 **Why the base cap is 2 is a measurement, not a taste** — see the balance model
 in `docs/DEVELOPMENT.md`. At cap 5 the start camp feeds about 45 people and no
-run ever reaches that, so there is never a reason to leave; at 2 the camp fills
-around turn 30. Below 15 people the cap changes nothing, because start rings are
+run ever reaches that, so every site is as good as any other; at 2 the camp
+fills around turn 30, and from then on *which* site you hold matters. It is not
+there to push the player out — settling for good is a supported way to play
+(see "Design direction" in `docs/DEVELOPMENT.md`). Below 15 people the cap changes nothing, because start rings are
 mostly grassland with slots to spare. Lowering the cap does not touch old saves'
 crews by itself — `enforceCrewCap()` runs on load and withdraws the
 latest-deployed workers first, the same order `trimCrew()` uses on a death.
