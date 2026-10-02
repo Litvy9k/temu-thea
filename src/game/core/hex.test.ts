@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import {
   axialToOffset,
+  pathTo,
   axialToPixel,
   corners,
   distance,
@@ -117,4 +118,20 @@ test('reachable 会为绕远路找到更便宜的走法，而不是认下第一�
   const got = reachable(center, 10, (h) => (key(h) === swamp ? 9 : 1));
   assert.equal(got.get(swamp)?.cost, 9, '沼泽本身只能硬穿');
   assert.equal(got.get(behind)?.cost, 3, '沼泽后面那格应该走 (0,1)→(1,1) 绕过去');
+});
+
+test('pathTo 还原出一条首尾相接、代价对得上的路', () => {
+  const center = { q: 0, r: 0 };
+  const swamp = key({ q: 1, r: 0 });
+  const cost = (h: { q: number; r: number }) => (key(h) === swamp ? 9 : 1);
+  const got = reachable(center, 10, cost);
+  const to = { q: 3, r: 0 };
+
+  const path = pathTo(got, to);
+  assert.deepEqual(path.at(-1), to);
+  assert.equal(distance(center, path[0]), 1, '第一步紧挨起点');
+  for (let i = 1; i < path.length; i += 1) assert.equal(distance(path[i - 1], path[i]), 1);
+  assert.equal(path.reduce((sum, h) => sum + cost(h), 0), got.get(key(to))?.cost);
+  assert.ok(!path.some((h) => key(h) === swamp), '最便宜的路绕开沼泽');
+  assert.deepEqual(pathTo(got, { q: 50, r: 50 }), []);
 });

@@ -29,7 +29,7 @@ work and *what is left to do*, and links there rather than repeating it.
 npm install
 npm run dev          # dev server on :5173
 npm run build        # static dist/ (JS + CSS, no backend)
-npm test             # 124 tests, node:test, no framework
+npm test             # 126 tests, node:test, no framework
 npm run typecheck    # tsc --noEmit — Vite only strips types, it never checks them
 npm run lint         # oxlint
 ```
@@ -199,6 +199,12 @@ test asserts the invariant. `noteResource()` runs on survey, not on sight —
 otherwise the HUD would give away what the `?` is. `describeHex()` hides
 unsurveyed deposits from the tile panel, yields included.
 
+**Along the path.** A move of several hexes counts every hex on the way.
+`moveParty()` takes the route from `pathTo()` (built from the predecessors that
+`reachable()` records), runs `exploreAround()` and `surveyAround()` on each
+intermediate step, then `refreshVision()` at the destination. Hexes passed on the
+way become explored but not visible.
+
 ## Crew and the per-tile cap
 
 | Constant / function | Value | |
@@ -323,7 +329,9 @@ are written as `.hexgame button.hg-season…` to outrank the global
    shallows go into an extra `ice` batch.
 2. Grid lines (`s ≥ 11`).
 3. Site frames (`s ≥ 9`).
-4. Terrain glyphs, then deposit marks, then deposit dots.
+4. Terrain glyphs, then deposit marks, then deposit dots. Every glyph is
+   centred on its ink box (`inkCenter()`, measured once per character), not its
+   em box; see CLAUDE.md.
 5. Reach shading while roaming.
 6. Camp: crew bars, progress bars, the camp ring and `⌂`; or the party dot.
 7. Hover and selection outlines.

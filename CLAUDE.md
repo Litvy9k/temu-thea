@@ -169,6 +169,13 @@ that a tile *has* a deposit (drawn as `?`); the tile is `surveyed` — and the
 deposit identified — only once the party has been within `workRadius()` of it,
 roaming or camped. `surveyed` is append-only, like `explored`.
 
+**A move of several hexes sees and surveys every hex on the way, not just the
+end.** `reachable()` records each hex's predecessor and `pathTo()` rebuilds the
+route; `moveParty()` explores and surveys around each step before the final
+`refreshVision()`. Only the end used to count, which left an unexplored gap along
+the road and kept every deposit passed on the way at `?` — and the gap grows with
+anything that lengthens a move (pack frames, debug mode).
+
 **The survey radius *is* the work radius — one function, `workRadius()`.** That
 is what guarantees you can never assign someone to an unsurveyed tile: every
 workable tile is next to the camp, the camp is where the party stands, and
@@ -196,6 +203,14 @@ them. It then replaced the terrain glyph in the centre with a coloured inset rin
 for zoomed-out scanning; the ring then had to go when crew moved to edge bars,
 because both lived in the same inset band. Zoomed-out scanning is now a dot in
 the deposit slot (`9 ≤ s < 20`), which needs no band of its own.
+
+**Glyphs are centred on their ink, not their em box.** `textBaseline = 'middle'`
+centres the font's em box, so a glyph whose strokes sit low or high lands off its
+slot: tundra's comma is all below the baseline and dropped about 0.2 of a hex
+onto the deposit under it, while desert's `˙` and grassland's `"` float up.
+`drawMarks()` measures each character's actual bounding box once (cached as a
+ratio of font size) and shifts it so the strokes are centred on the slot. Any new
+glyph lands correctly with no hand tuning.
 
 Deposit glyphs are drawn smaller than terrain glyphs and prefer outline forms:
 terrain symbols are hairline (`·` `♣` `∩`), and a solid shape at the same weight

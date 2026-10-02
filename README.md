@@ -28,7 +28,7 @@ its value — there is no language switch inside the game itself.
 npm install
 npm run dev        # dev server
 npm run build      # emits dist/ — three static files
-npm test           # 124 tests, no test framework (node:test)
+npm test           # 126 tests, no test framework (node:test)
 npm run typecheck  # tsc --noEmit
 ```
 

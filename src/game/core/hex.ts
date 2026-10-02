@@ -175,18 +175,39 @@ export function ring(center: Axial, n: number): Axial[] {
   return out;
 }
 
+export interface Reach {
+  hex: Axial;
+  cost: number;
+  /** 最便宜那条路上的上一格；紧挨起点的格子这里就是起点 */
+  from: Axial | null;
+}
+
+/**
+ * 从 reachable() 的结果里还原去 to 的路，不含起点、含终点。走不到返回空数组。
+ */
+export function pathTo(reach: Map<string, Reach>, to: Axial): Axial[] {
+  const path: Axial[] = [];
+  let cur = reach.get(key(to));
+  while (cur) {
+    path.push(cur.hex);
+    cur = cur.from ? reach.get(key(cur.from)) : undefined;
+  }
+  return path.reverse();
+}
+
 /**
  * 带地形代价的可达范围（Dijkstra 松弛，地图小、预算小，不值得上优先队列）。
  *
  * costOf 返回 null 表示这一格进不去（深海、悬崖）。返回值不含起点。
+ * 每格记下最便宜那条路上的上一格（from），用 pathTo() 还原整条路。
  */
 export function reachable(
   start: Axial,
   budget: number,
   costOf: (h: Axial) => number | null,
-): Map<string, { hex: Axial; cost: number }> {
-  const best = new Map<string, { hex: Axial; cost: number }>();
-  best.set(key(start), { hex: start, cost: 0 });
+): Map<string, Reach> {
+  const best = new Map<string, Reach>();
+  best.set(key(start), { hex: start, cost: 0, from: null });
 
   let frontier: Axial[] = [start];
   while (frontier.length) {
@@ -204,7 +225,7 @@ export function reachable(
         const prev = best.get(k);
         if (prev && prev.cost <= total) continue;
 
-        best.set(k, { hex: nb, cost: total });
+        best.set(k, { hex: nb, cost: total, from: h });
         next.push(nb);
       }
     }

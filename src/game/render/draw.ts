@@ -291,16 +291,43 @@ interface Mark {
   dim: boolean;
 }
 
+/**
+ * 每个字符"墨迹中心"相对基线的偏移，按字号的比例存（与字号无关，只量一次）。
+ *
+ * textBaseline = 'middle' 对齐的是字体的 em 框，不是笔画本身：逗号（苔原）
+ * 的笔画在基线下面，按 em 框居中就整个往下掉，压到下面矿位的符号上；
+ * 上点（荒漠 ˙）和引号（草地 "）反过来往上飘。所以按实际墨迹的上下沿居中，
+ * 每个符号的笔画都真正落在自己那一格里，换什么字符都不用再手调。
+ */
+const INK_REF_PX = 100;
+const inkShift = new Map<string, number>();
+
+function inkCenter(ctx: CanvasRenderingContext2D, ch: string): number {
+  let ratio = inkShift.get(ch);
+  if (ratio === undefined) {
+    const font = ctx.font;
+    ctx.font = `${INK_REF_PX}px ${MONO}`;
+    const m = ctx.measureText(ch);
+    ctx.font = font;
+    // alphabetic 基线下：墨迹从 y - ascent 到 y + descent，中点在 (descent - ascent) / 2
+    ratio = (m.actualBoundingBoxDescent - m.actualBoundingBoxAscent) / 2 / INK_REF_PX;
+    inkShift.set(ch, ratio);
+  }
+  return ratio;
+}
+
 /** 同一字号的一批符号。dimAlpha 是看不见（只是记得）时的透明度 */
 function drawMarks(ctx: CanvasRenderingContext2D, marks: Mark[], size: number, dimAlpha: number): void {
   if (!marks.length) return;
+  const px = Math.round(size);
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = `${Math.round(size)}px ${MONO}`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `${px}px ${MONO}`;
   for (const m of marks) {
     ctx.globalAlpha = m.dim ? dimAlpha : 1;
     ctx.fillStyle = m.ink;
-    ctx.fillText(m.ch, m.x, m.y);
+    // 把墨迹中心挪到 m.y 上
+    ctx.fillText(m.ch, m.x, m.y - inkCenter(ctx, m.ch) * px);
   }
   ctx.globalAlpha = 1;
 }

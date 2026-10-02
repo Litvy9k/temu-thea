@@ -13,7 +13,7 @@
  * 这里用原地修改 + version 计数驱动 React 重绘，没有做不可变更新：地图有几千个
  * tile，每走一步整份复制不值当。代价是撤销要靠 snapshot() 显式存快照。
  */
-import { type Axial, distance, equals, key, parseKey, range, reachable } from './hex.ts';
+import { type Axial, type Reach, distance, equals, key, parseKey, pathTo, range, reachable } from './hex.ts';
 import { type GameMap, type Site, generateMap, tileAt } from './map.ts';
 import { DEPOSITS, type DepositId, yieldsOf } from './deposits.ts';
 import { seedFrom, step } from './rng.ts';
@@ -332,10 +332,23 @@ export function refreshVision(state: GameState): void {
 
   reveal(state.party.at, sightFrom(state, state.party.at));
   if (state.camp) reveal(state.camp.at, campSight(state));
+  surveyAround(state, state.party.at);
+}
 
-  // 探查：看见只知道"那儿有东西"，走到采集半径之内才知道是什么。
-  // 游荡时路过也算 —— 探查是"走到跟前"，不是"扎营"
-  for (const h of range(state.party.at, workRadius(state))) {
+/** 路过时看到的：记进地图（explored），但走开了就不算"正看着"（visible 不动） */
+function exploreAround(state: GameState, center: Axial, radius: number): void {
+  for (const h of range(center, radius)) {
+    const tile = tileAt(state.map, h);
+    if (tile) tile.explored = true;
+  }
+}
+
+/**
+ * 探查：看见只知道"那儿有东西"，走到采集半径之内才知道是什么。
+ * 游荡时路过也算 —— 探查是"走到跟前"，不是"扎营"。
+ */
+function surveyAround(state: GameState, center: Axial): void {
+  for (const h of range(center, workRadius(state))) {
     const tile = tileAt(state.map, h);
     if (!tile || tile.surveyed) continue;
     tile.surveyed = true;
@@ -378,7 +391,7 @@ export function setDebug(state: GameState, on: boolean): boolean {
 
 /** 这回合还能走到哪。扎营状态下哪也去不了 */
 export function movesAvailable(state: GameState) {
-  if (state.camp || state.over) return new Map<string, { hex: Axial; cost: number }>();
+  if (state.camp || state.over) return new Map<string, Reach>();
   const budget = state.debug ? DEBUG_REACH : state.party.moves;
   return reachable(state.party.at, budget, (h) => stepCost(state, h));
 }
@@ -388,8 +401,17 @@ export function moveParty(state: GameState, to: Axial): boolean {
   if (state.camp || state.over) return false;
   if (equals(state.party.at, to)) return false;
 
-  const target = movesAvailable(state).get(key(to));
+  const reach = movesAvailable(state);
+  const target = reach.get(key(to));
   if (!target) return false;
+
+  // 一口气走好几格时，沿途每一格也要看见、探查到 —— 只算终点的话，
+  // 路上那一段会留下一条没探索过的缝，路过的矿也还是 ?
+  const path = pathTo(reach, to);
+  for (const h of path.slice(0, -1)) {
+    exploreAround(state, h, sightFrom(state, h));
+    surveyAround(state, h);
+  }
 
   state.party.at = to;
   if (!state.debug) state.party.moves -= target.cost;

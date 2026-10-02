@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { distance } from './hex.ts';
+import { distance, pathTo, range } from './hex.ts';
 import { DEPOSITS, DEPOSIT_ORDER, densityAt, yieldsOf } from './deposits.ts';
 import { generateMap, hexOfIndex, tileAt } from './map.ts';
 import { RESOURCES, TERRAIN, primaryOf } from './terrain.ts';
@@ -19,6 +19,10 @@ import {
   CAMP_RADIUS,
   HARVEST_GOAL,
   createGame,
+  moveParty,
+  movesAvailable,
+  setDebug,
+  workRadius,
   endTurn,
   makeCamp,
   refreshVision,
@@ -253,5 +257,24 @@ test('矿脉符号和它产的资源符号是同一个', () => {
   // 玩家会以为是两种东西 —— 黏土就曾经是地图上 ▱、资源栏里 ▰
   for (const [id, d] of Object.entries(DEPOSITS)) {
     assert.equal(d.glyph, RESOURCES[d.res].glyph, `${id} 的符号和 ${d.res} 不一致`);
+  }
+});
+
+test('一次走好几格，沿途每一格的视野和探查都算，不只终点', () => {
+  const g = createGame({ seed: 'thea' });
+  setDebug(g, true); // 一次能走很远，路上的缝才明显
+  const reach = movesAvailable(g);
+  const far = [...reach.values()].reduce((a, b) => (distance(g.party.at, b.hex) > distance(g.party.at, a.hex) ? b : a));
+  assert.ok(distance(g.party.at, far.hex) >= 5, '这个种子要能走出至少 5 格');
+
+  const path = pathTo(reach, far.hex);
+  assert.ok(moveParty(g, far.hex));
+
+  // 探查半径 ⊂ 视野，所以路上每一格周围都该既探查过又探索过
+  for (const step of path) {
+    for (const h of range(step, workRadius(g))) {
+      const tile = tileAt(g.map, h);
+      if (tile) assert.ok(tile.surveyed && tile.explored, `路上 ${h.q},${h.r} 附近没探查到`);
+    }
   }
 });
