@@ -30,6 +30,7 @@ import {
   woodUpkeep,
   campBlocker,
   createGame,
+  setDebug,
   endTurn,
   idleCount,
   makeCamp,
@@ -71,7 +72,7 @@ const DRAG_SLOP = 8;
  * stateRef 是给外面读当前状态用的（存档）—— 状态是原地更新的，
  * 所以只要拿到这个对象引用，任何时候读到的都是最新的。
  */
-export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = null }) {
+export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = null, debug = false }) {
   /** 最外层容器，只用来决定布局 —— 它的宽度不受面板开合影响 */
   const shellRef = useRef(null);
   /** 地图那一块，用来算相机视口 —— 它的宽度**会**随面板开合变化 */
@@ -84,6 +85,12 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
     if (stateRef) stateRef.current = game;
   }, [stateRef, game]);
   const [, bump] = useReducer((n) => n + 1, 0);
+
+  // 调试开关是宿主的，不是这一局的：每次变化写进 state，规则函数从那里读。
+  // 改 version 让可达范围、建造按钮这些 memo 跟着重算
+  useEffect(() => {
+    if (setDebug(game, debug)) bump();
+  }, [game, debug]);
 
   const [vp, setVp] = useState({ width: 0, height: 0 });
   const [shellWidth, setShellWidth] = useState(0);
@@ -431,6 +438,8 @@ export function useHexGame({ seed, lang = 'zh', initialState = null, stateRef = 
     woodUpkeep: woodUpkeep(game),
     /** 这一回合的行动力上限（背架会抬高它） */
     maxMoves: partyMoves(game),
+    /** 调试模式：行动力不减，界面上显示成 ∞ */
+    debug: Boolean(game.debug),
     season: seasonAt(game.turn),
 
     confirm,

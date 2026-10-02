@@ -21,6 +21,7 @@ export const STRINGS = {
   roaming: { en: 'Roaming', zh: '游荡中' },
   camped: { en: 'Camped', zh: '已扎营' },
   newGame: { en: 'New game', zh: '新游戏' },
+  debug: { en: 'Debug', zh: '调试' },
   save: { en: 'Save', zh: '存档' },
   load: { en: 'Load', zh: '读档' },
   loadFailed: { en: 'Could not read that save', zh: '读不了这个存档' },

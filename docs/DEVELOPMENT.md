@@ -29,13 +29,35 @@ work and *what is left to do*, and links there rather than repeating it.
 npm install
 npm run dev          # dev server on :5173
 npm run build        # static dist/ (JS + CSS, no backend)
-npm test             # 123 tests, node:test, no framework
+npm test             # 124 tests, node:test, no framework
 npm run typecheck    # tsc --noEmit — Vite only strips types, it never checks them
 npm run lint         # oxlint
 ```
 
 Node 22.17; `.ts` runs under node via `--experimental-strip-types`, which the npm
 scripts already pass.
+
+### Debug mode
+
+The **Debug** button next to *New game* in the dev shell turns it on. While it is
+on:
+
+- food and wood upkeep are 0;
+- buildings, gear and tools cost nothing;
+- moves are never spent, and one click reaches `DEBUG_REACH` (30) moves away. The
+  HUD shows `∞`.
+
+Everything else still runs: harvests, the storage cap, spoilage, events, the
+thaw penalty, site collapse. That keeps the debug mode useful for testing those
+systems.
+
+The flag is `state.debug`, set only through `setDebug()`. Its value comes from the
+`debug` prop on `Game`. It belongs to the host, not the run, so it is **not
+saved**: a loaded game starts with it off and the host sets it again. The App
+shell keeps the switch across *New game* and *Load*.
+
+`SaveControls` shows the button only when it is given `onToggleDebug`, so the
+personal site does not show it unless it passes that prop.
 
 ## Architecture
 

@@ -13,7 +13,11 @@ import { parseSave, saveFilename, serialize } from '../core/save.ts';
 import { t } from '../i18n.js';
 import './SaveControls.css';
 
-export default function SaveControls({ getState, onNew, onLoad, lang = 'zh' }) {
+/**
+ * debug / onToggleDebug 可选：不传 onToggleDebug 就不出调试按钮，
+ * 个人站上默认就看不到它。
+ */
+export default function SaveControls({ getState, onNew, onLoad, lang = 'zh', debug = false, onToggleDebug }) {
   const fileRef = useRef(null);
   const [error, setError] = useState(null);
 
@@ -56,6 +60,16 @@ export default function SaveControls({ getState, onNew, onLoad, lang = 'zh' }) {
       <button type="button" onClick={onNew}>
         {t(lang, 'newGame')}
       </button>
+      {onToggleDebug && (
+        <button
+          type="button"
+          className={debug ? 'hg-save__debug is-on' : 'hg-save__debug'}
+          aria-pressed={debug}
+          onClick={onToggleDebug}
+        >
+          {t(lang, 'debug')}
+        </button>
+      )}
       <button type="button" onClick={download}>
         {t(lang, 'save')}
       </button>

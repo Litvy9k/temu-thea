@@ -21,8 +21,8 @@ import EventDialog from './EventDialog.jsx';
 import { ConfirmDialog } from './Overlays.jsx';
 import './Game.css';
 
-export default function Game({ lang = 'zh', seed, initialState = null, stateRef = null }) {
-  const g = useHexGame({ seed, lang, initialState, stateRef });
+export default function Game({ lang = 'zh', seed, initialState = null, stateRef = null, debug = false }) {
+  const g = useHexGame({ seed, lang, initialState, stateRef, debug });
 
   // narrow 为 null = 宽度还没量出来。这时先只画 canvas，
   // 免得先按桌面渲染一帧再跳成手机版，那一下闪烁比晚一帧难看得多

@@ -70,6 +70,8 @@ export const CAMP_SIGHT = 2;
 export const PARTY_MOVES = 4;
 /** 背架加多少行动力 */
 export const PACKS_MOVE_BONUS = 1;
+/** 调试模式下一次点击能走多远。行动力本身不减，所以总路程不限 */
+export const DEBUG_REACH = 30;
 
 /** 采集进度条的满值 */
 export const HARVEST_GOAL = 40;
@@ -230,6 +232,13 @@ export interface GameState {
    */
   rngState: number;
 
+  /**
+   * 调试模式：不扣维持消耗、不扣建造和制作的材料、行动力不减。
+   * 由宿主通过 Game 的 debug prop 打开，**不进存档** —— 它是开发者的开关，
+   * 不是这一局的属性；读回来的档一律从关着开始，由宿主再设。
+   */
+  debug?: boolean;
+
   version: number;
 }
 
@@ -359,10 +368,19 @@ export function stepCost(state: GameState, h: Axial): number | null {
   return TERRAIN[tile.terrain].moveCost;
 }
 
+/** 开关调试模式。返回是否真的变了 */
+export function setDebug(state: GameState, on: boolean): boolean {
+  if (Boolean(state.debug) === on) return false;
+  state.debug = on;
+  state.version += 1;
+  return true;
+}
+
 /** 这回合还能走到哪。扎营状态下哪也去不了 */
 export function movesAvailable(state: GameState) {
   if (state.camp || state.over) return new Map<string, { hex: Axial; cost: number }>();
-  return reachable(state.party.at, state.party.moves, (h) => stepCost(state, h));
+  const budget = state.debug ? DEBUG_REACH : state.party.moves;
+  return reachable(state.party.at, budget, (h) => stepCost(state, h));
 }
 
 /** 返回是否真的走了。走不到就原样不动，不报错 —— 点到走不了的地方是常事 */
@@ -374,7 +392,7 @@ export function moveParty(state: GameState, to: Axial): boolean {
   if (!target) return false;
 
   state.party.at = to;
-  state.party.moves -= target.cost;
+  if (!state.debug) state.party.moves -= target.cost;
   refreshVision(state);
   state.version += 1;
   return true;
@@ -394,7 +412,7 @@ export function campBlocker(state: GameState): CampBlocker {
   // 冬天能走上去，但化冻时营地会泡在水里
   if (!tile || !isPassable(tile.terrain)) return 'terrain';
   // 走光了行动力就没法当回合再扎营，否则"走到底 + 立刻开工"没有代价
-  if (state.party.moves <= 0) return 'noMoves';
+  if (state.party.moves <= 0 && !state.debug) return 'noMoves';
   return null;
 }
 
@@ -403,7 +421,7 @@ export function makeCamp(state: GameState): boolean {
 
   state.camp = { at: { ...state.party.at }, crew: {}, order: [] };
   // 扎营吃掉当回合剩下的行动力
-  state.party.moves = 0;
+  if (!state.debug) state.party.moves = 0;
   // 回到一处营地址扎营就算来过；这处的建筑随之重新生效
   const site = currentSite(state);
   if (site) site.lastVisit = state.turn;
@@ -434,7 +452,7 @@ export function breakCamp(state: GameState): boolean {
   if (!state.camp || state.over) return false;
 
   state.camp = null;
-  state.party.moves = 0;
+  if (!state.debug) state.party.moves = 0;
   // 仓库留下了，储量上限随之降低；倒掉的量记进 lastWasted，HUD 上看得见
   const wasted = clampToCap(state);
   for (const res of RESOURCE_IDS) state.lastWasted[res] += wasted[res];
@@ -719,14 +737,14 @@ export function buildBlocker(state: GameState, id: BuildingId): BuildBlocker {
   if (b.slot && slotsUsed(site) >= slotCapacity(site)) return 'slots';
   // 在新地点造第一座，会生成一处新的营地址
   if (!site && state.map.sites.length >= MAX_SITES) return 'siteLimit';
-  if (!canAfford(state.stock, b.cost)) return 'cost';
+  if (!state.debug && !canAfford(state.stock, b.cost)) return 'cost';
   return null;
 }
 
 export function buildBuilding(state: GameState, id: BuildingId): boolean {
   if (buildBlocker(state, id) != null) return false;
 
-  payCost(state.stock, BUILDINGS[id].cost);
+  if (!state.debug) payCost(state.stock, BUILDINGS[id].cost);
   let site = currentSite(state);
   if (!site) {
     // 营地址从第一座建筑开始存在
@@ -802,14 +820,14 @@ function craftGate(state: GameState): CraftBlocker {
 export function craftBlocker(state: GameState, id: ToolId): CraftBlocker {
   const gate = craftGate(state);
   if (gate) return gate;
-  if (!canAfford(state.stock, TOOLS[id].cost)) return 'cost';
+  if (!state.debug && !canAfford(state.stock, TOOLS[id].cost)) return 'cost';
   return null;
 }
 
 export function craftTool(state: GameState, id: ToolId): boolean {
   if (craftBlocker(state, id) != null) return false;
 
-  payCost(state.stock, TOOLS[id].cost);
+  if (!state.debug) payCost(state.stock, TOOLS[id].cost);
   state.works.tools[id] += 1;
   state.version += 1;
   return true;
@@ -819,14 +837,14 @@ export function gearBlocker(state: GameState, id: GearId): CraftBlocker {
   const gate = craftGate(state);
   if (gate) return gate;
   if (hasGear(state, id)) return 'owned';
-  if (!canAfford(state.stock, GEAR[id].cost)) return 'cost';
+  if (!state.debug && !canAfford(state.stock, GEAR[id].cost)) return 'cost';
   return null;
 }
 
 export function craftGear(state: GameState, id: GearId): boolean {
   if (gearBlocker(state, id) != null) return false;
 
-  payCost(state.stock, GEAR[id].cost);
+  if (!state.debug) payCost(state.stock, GEAR[id].cost);
   state.works.gear.push(id);
   state.version += 1;
   return true;
@@ -836,12 +854,14 @@ export function craftGear(state: GameState, id: GearId): boolean {
 
 /** 这一回合要吃多少食物。仓库（这处营地的）省下的是总量里的一份，不是每人一份 */
 export function foodUpkeep(state: GameState): number {
+  if (state.debug) return 0;
   const stored = hasBuilding(state, 'store') ? 1 : 0;
   return Math.max(0, state.party.people * UPKEEP_FOOD_PER_PERSON - stored);
 }
 
 /** 这一回合篝火烧多少柴。冬天翻倍 —— 和人数无关这一点不变 */
 export function woodUpkeep(state: GameState): number {
+  if (state.debug) return 0;
   return UPKEEP_WOOD_PER_TURN * (isWinter(state.turn) ? WINTER_WOOD_FACTOR : 1);
 }
 

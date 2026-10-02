@@ -32,7 +32,7 @@ export default function DesktopLayout(g) {
           value={
             camped
               ? `${game.party.people - idle} / ${game.party.people}`
-              : `${game.party.moves} / ${g.maxMoves}`
+              : g.debug ? '∞' : `${game.party.moves} / ${g.maxMoves}`
           }
         />
         <Row

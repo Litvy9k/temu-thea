@@ -472,7 +472,14 @@ function GamePage({ lang }) {              // lang comes from the site's own sta
 
 `SaveControls` is optional and can sit anywhere on the page — it only needs
 `getState` and the two callbacks. Its CSS sets layout only, no colours or
-borders, so it inherits whatever button styling surrounds it.
+borders, so it inherits whatever button styling surrounds it. The one exception
+is the debug button, which turns yellow while debug mode is on. That button
+appears only when `onToggleDebug` is passed (together with `debug`, which also
+goes to `Game`). Leave both out on the public site.
+
+**Debug mode is not saved.** It is the developer's switch, not a property of the
+run. If it were saved, a save made while testing would carry free building into
+a normal game, and nothing on screen would say why the numbers are wrong.
 
 ### The language interface
 

@@ -26,6 +26,9 @@ export default function App() {
   // Game 会把当前状态写进来，存档时从这里读。状态是原地更新的，所以引用一直有效
   const stateRef = useRef(null);
 
+  // 调试开关跟着外壳走，不跟着一局走：新游戏、读档都保持当前开关
+  const [debug, setDebug] = useState(false);
+
   return (
     <div className="shell">
       <header className="shell__bar">
@@ -33,6 +36,8 @@ export default function App() {
 
         <SaveControls
           lang={LANG}
+          debug={debug}
+          onToggleDebug={() => setDebug((d) => !d)}
           getState={() => stateRef.current}
           onNew={() => setSession((s) => ({ id: s.id + 1, seed: newSeed(), state: null }))}
           onLoad={(state) => setSession((s) => ({ id: s.id + 1, seed: null, state }))}
@@ -46,6 +51,7 @@ export default function App() {
           initialState={session.state}
           stateRef={stateRef}
           lang={LANG}
+          debug={debug}
         />
       </main>
     </div>

@@ -19,6 +19,12 @@
   white-space: nowrap;
 }
 
+.hg-save button.hg-save__debug.is-on {
+  /* 唯一自带颜色的地方：开着调试却看不出来，测出来的数就全不可信 */
+  color: #ffcf5a;
+  outline: 1px solid #ffcf5a;
+}
+
 .hg-save__error {
   color: #ff8b6b;
   font-size: 12px;

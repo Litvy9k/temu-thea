@@ -28,7 +28,7 @@ export default function MobileLayout(g) {
           <b>
             {camped
               ? `${game.party.people - idle} / ${game.party.people}`
-              : `${game.party.moves} / ${g.maxMoves}`}
+              : g.debug ? '∞' : `${game.party.moves} / ${g.maxMoves}`}
           </b>
 
           {camped && idle > 0 && (

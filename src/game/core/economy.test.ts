@@ -139,3 +139,30 @@ test('事件表里的比例值都在 -1..1 之间', () => {
     }
   }
 });
+
+// ---------------------------------------------------------------- 调试模式
+
+test('调试模式：不扣维持、不扣材料、行动力不减，而且不进存档', async () => {
+  const { setDebug, foodUpkeep, woodUpkeep, movesAvailable, moveParty, craftGear } = await import('./state.ts');
+  const { serialize, parseSave } = await import('./save.ts');
+
+  const g = createGame({ seed: 'thea' });
+  setDebug(g, true);
+  assert.equal(foodUpkeep(g), 0);
+  assert.equal(woodUpkeep(g), 0);
+
+  // 走一步，行动力原样
+  const before = g.party.moves;
+  const [dest] = [...movesAvailable(g).values()].filter((m) => m.cost > 0);
+  assert.ok(moveParty(g, dest.hex));
+  assert.equal(g.party.moves, before);
+
+  // 空着手也能建、能做，库存不动
+  makeCamp(g);
+  g.stock = { ...g.stock, wood: 0, stone: 0, clay: 0 };
+  assert.ok(buildBuilding(g, 'workshop'));
+  assert.ok(craftGear(g, 'jars'));
+  assert.equal(g.stock.wood, 0);
+
+  assert.equal(parseSave(serialize(g)).debug, undefined);
+});
