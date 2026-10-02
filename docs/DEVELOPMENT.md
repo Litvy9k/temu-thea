@@ -392,12 +392,15 @@ These are settled with the designer and shape everything below.
 
 Numbers in this section are provisional; the shapes are agreed.
 
-- **Gear and buildings, two kinds of works.**
-  - **Gear** travels with the party: today's store, workshop, watchtower, clay
-    jars and pack frames are all gear and get renamed as such in the UI. Data
-    stays on `state.works`.
+- **Gear and buildings, two kinds of works, split by where they live.**
+  - **Gear** travels with the party: every tool (counted, one per person) plus
+    the party-wide clay jars and pack frames. Everything you *craft* is gear —
+    "crafting" and "gear" are the same thing, so the camp panel has one tab for
+    it. Data stays on `state.works`.
   - **Buildings** belong to a **camp site** — a place on the map — and stay
-    there when the party leaves. Come back, camp on the same tile, and they
+    there when the party leaves. Today's **store, workshop and watchtower become
+    buildings**: they are houses in the fiction, and were only portable because
+    there was no fixed category when they were added. Come back, camp on the same tile, and they
     work again. This is what makes seasonal camps possible: a summer camp and a
     winter camp, each built up, visited in turn.
   - A building's effect covers the whole camp ring, never a single tile, so the
@@ -409,6 +412,27 @@ Numbers in this section are provisional; the shapes are agreed.
     save size.
   - Design rule: a building pays off once the total time spent at that site —
     across every visit — exceeds `cost ÷ gain per turn`.
+  - Consequences of moving store, workshop and watchtower to buildings:
+    - Crafting needs a workshop **at the current site**. Gear already made works
+      anywhere.
+    - The store's storage +40 and food upkeep −1 apply only while camped at its
+      site. On the road, storage is the base 40 plus clay jars — **clay jars
+      become the migration item**, which fits clay's role (storage). The
+      migration-range table in the balance model must be recomputed: large
+      parties now need jars, not a store, to travel far.
+    - Breaking camp at a site whose store raises the cap drops the cap. Whatever
+      no longer fits is thrown away, after a confirmation that names the amounts
+      ("breaking camp throws away 23 food"). Keeping goods in the store for the
+      next visit is a possible later feature; it needs a per-site stock and
+      deposit/withdraw UI.
+    - Watchtower sight +1 applies only at its site.
+    - Old saves: store, workshop and watchtower in `works.facilities` move into a
+      new site at the party's current position on load.
+    - The settled rule in CLAUDE.md, "facilities and tools hang off the party",
+      becomes "gear hangs off the party, buildings hang off the site". The reason
+      it exists — no stash-and-restore step — still holds for both.
+  - Camp panel: two tabs, **Buildings** and **Gear** (gear is where crafting
+    happens; tools and party gear are two groups inside it).
 - **Data model for sites: buildings live on the site, the camp only points at
   it.** `map.sites: { at, buildings[], lastVisit }[]`; `camp.site` refers to one.
   Breaking camp nulls `camp` as today and the site simply stays. Making camp on a
@@ -431,10 +455,31 @@ Numbers in this section are provisional; the shapes are agreed.
   - winter: fire wood ×3; **all shallows freeze and can be walked on**; ice
     cannot be camped on
   - a `season` metric for event conditions
-  - HUD: the current season, turns left in it, and the active effects; ice shows
-    cracks in its last turns
-  - HUD: **projected** next-turn income instead of last turn's, so season effects
-    never have to be computed by hand
+  - HUD, desktop: a row under the turn counter, `季节  ❄ 冬 7/20`. Mobile: on
+    the right of the top strip's first line, which only holds the turn and the
+    roaming/camped state today. Same `7/20` (elapsed / length) in both — one
+    thing to learn.
+  - The season character and its icon are coloured per season, avoiding the
+    three colours that already mean something (accent green = income and geared
+    crew, `#ff8b6b` = shortage, `#ffc98c` = idle): spring `#f0a6c8`, summer
+    `#b5d86a`, autumn `#e0a24e`, winter `#8fc8f0`. **Agreed.**
+  - **Season icons** — flower, sun, leaf, snowflake — drawn before the season
+    character at 1em. Source: [`docs/season-icons.svg`](season-icons.svg), a
+    16×16 grid, all `currentColor`, so setting `color` on the element colours it.
+    No masks and no ids inside the shapes, so they can be inlined repeatedly;
+    partial fills use group opacity so overlapping petals do not darken. Checked
+    at 13px: all four tell apart. The flower petals sit at 75% — at 55% they read
+    grey-purple on the dark panel instead of pink. These are the first SVGs in
+    the HUD (everything else is a text glyph): emoji-capable code points such as
+    `☀` and `❄` can render as colour emoji and ignore CSS colour, which is why
+    they are drawn rather than typed.
+  - Hovering (desktop) or tapping (mobile) the season shows its active effects,
+    e.g. "fire wood ×3 · shallows frozen".
+  - **A season change is announced by a non-blocking notice**, not an event
+    dialog: it shows the new season and its effects, never stops End turn, and
+    fades on its own. It must not take pointer events over the map, and stays
+    within the game's z-index ≤ 2 (see the host contract in CLAUDE.md).
+  - Ice shows cracks in its last turns.
 
   A 20-turn winter at ×3 burns 60 wood against a base cap of 40, so a winter
   cannot be sat out on stockpile alone: a winter camp needs forest, or more
@@ -474,6 +519,13 @@ Numbers in this section are provisional; the shapes are agreed.
 - Whether `?` should be genuinely uncertain. Today a `?` on hills is always iron
   and on forest or tundra always hide; only grassland is ambiguous. More deposit
   types, or overlapping terrains, would fix it.
+
+### UI follow-ups
+
+- **The resource panel needs a rework.** Six resources, each with stock, cap and
+  income, are already crowding the mobile top strip. Part of the same job:
+  whether to show **projected** next-turn income instead of last turn's, so
+  season effects never have to be computed by hand.
 
 ### Balance follow-ups
 
