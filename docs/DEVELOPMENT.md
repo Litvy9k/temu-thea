@@ -346,7 +346,7 @@ is the `SLOT` table, in units of `s`:
 | deposit dot | +0.24 | radius 0.1 | `9 ≤ s < 20` |
 | progress bar | +0.44 | 0.62 × 0.07 | `s ≥ 12`, worked tiles |
 | crew bars | inset 0.8 | middle 70% of each edge | `s ≥ 12`, work tiles with crew |
-| site frame | inset 0.78 | grey hexagon outline plus solid wedges in the top, lower-right and lower-left corners (legs 0.42 of an edge) | `s ≥ 9`, not on the current camp or a tile with crew bars |
+| site frame | inset 0.78 | grey dashed hexagon outline | `s ≥ 9`, not on the current camp or a tile with crew bars |
 
 Work tiles with nobody on them get a faint outline instead of bars, and so do all
 work tiles below `s = 12`.
@@ -368,13 +368,11 @@ water at a glance — it is the player's only cue that a route is open.
 only the middle of each edge; a frame underneath would show through the corner
 gaps.
 
-The frame and its three corner wedges are **one path filled once**, not a stroke
-plus a fill. The site colour is translucent, so two passes would paint the part
-where the wedge overlaps the line twice, and that strip would come out brighter.
-The frame is therefore drawn as a ring: an outer hexagon wound clockwise and an
-inner one wound counter-clockwise, which the nonzero rule leaves hollow. The
-wedges are wound clockwise like the outer hexagon, so they stay filled where they
-cross the hollow; wound the other way, half of each wedge would cancel out.
+The frame is **dashed**, with dash and gap scaled to the tile (about four dashes
+an edge), so it reads as "empty, from before". That keeps it apart from the solid
+crew bars and the selection outline. The dashes restart at each tile's top
+corner, so every site shows the same pattern. Solid corner wedges were tried and
+dropped as ugly.
 
 Glyphs come from the system monospace stack; `scripts/` has no glyph check, so
 test a new symbol in the browser (compare `measureText` against `'￿'`).
