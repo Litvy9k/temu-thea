@@ -215,7 +215,7 @@ anywhere else and you do not have them.
   building that another one depends on cannot be demolished — and camp expansion
   stays while slots 4–6 are in use.
 
-On the map, a site you are not camped at has a **grey hexagon inset** in its
+On the map, a site you are not camped at has a **grey hexagon inset with solid triangles in three corners** in its
 tile. It hides while people are working that tile from a neighbouring camp.
 Selecting the tile lists the buildings in the tile panel.
 
@@ -284,7 +284,7 @@ one per slot, filled clockwise from the top right:
 
 Other marks:
 
-- **Grey hexagon inset** — a camp site of yours, with buildings waiting.
+- **Grey hexagon inset with three corner triangles** — a camp site of yours, with buildings waiting.
 - **Pale blue `=`** — ice (winter only). **`≠`** — the ice is about to thaw.
 - **Dimmed tiles** — explored, but not in sight right now.
 - **Green shading** while roaming — where you can reach this turn.

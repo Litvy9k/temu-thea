@@ -255,7 +255,23 @@ const ICE_CRACKING = { fill: ICE.fill, glyph: '≠', ink: '#e6f2f7' };
  *   营地就扎在这里 —— 亮色的 ⌂ 和圆环已经说明了。
  */
 const SITE_INSET = 0.78;
+/**
+ * 内框上、左下、右下三个角各填一个三角，光一圈细线在缩远时不够显眼。
+ * 三角的两条腰沿着内框的两条边，长度是边长的这么多 —— 再长就会碰到
+ * 地形符号（上角）和矿位（下面两角离它最近）。
+ */
+const SITE_WEDGE = 0.42;
+/** 画三角的角：corners() 从正上方顺时针，0 上、2 右下、4 左下 */
+const SITE_WEDGE_CORNERS = [0, 2, 4];
 
+/**
+ * 内框和三角拼成**一个**路径、**一次** fill，而不是描一圈线再填三角：
+ * 颜色是半透明的，分两次画的话线和三角重叠的那一截会叠成更亮的一块。
+ * 一次 fill 里重叠的子路径只上一次色，整个标记是同一个颜色。
+ *
+ * 所以内框本身也是填出来的：外六边形顺时针、内六边形逆时针，按非零环绕
+ * 规则中间挖空成一圈；三角和外六边形同向，落在挖空处也照样填上。
+ */
 function drawSiteFrames(
   ctx: CanvasRenderingContext2D,
   state: GameState,
@@ -263,7 +279,10 @@ function drawSiteFrames(
   s: number,
 ): void {
   if (!state.map.sites.length) return;
-  const inner = corners(0, 0, s * SITE_INSET);
+  // 线宽的一半换算到顶点半径上：六边形的边往外平移 d，顶点要外移 d / cos30°
+  const half = Math.max(1, s * 0.05) / 2 / Math.cos(Math.PI / 6);
+  const outer = corners(0, 0, s * SITE_INSET + half);
+  const hole = corners(0, 0, s * SITE_INSET - half).reverse();
   const lit = new Path2D();
   const dim = new Path2D();
 
@@ -273,14 +292,33 @@ function drawSiteFrames(
     if (state.camp && key(state.camp.at) === key(site.at)) continue;
     if (crewAt(state, site.at) > 0) continue;
     const p = at(site.at);
-    addHex(tile.visible ? lit : dim, p.x, p.y, inner);
+    const path = tile.visible ? lit : dim;
+    addHex(path, p.x, p.y, outer);
+    addHex(path, p.x, p.y, hole);
+    addWedges(path, p.x, p.y, outer);
   }
 
-  ctx.lineWidth = Math.max(1, s * 0.05);
-  ctx.strokeStyle = COLORS.site;
-  ctx.stroke(lit);
-  ctx.strokeStyle = COLORS.siteDim;
-  ctx.stroke(dim);
+  ctx.fillStyle = COLORS.site;
+  ctx.fill(lit);
+  ctx.fillStyle = COLORS.siteDim;
+  ctx.fill(dim);
+}
+
+/**
+ * 在外框的指定几个角上各加一个三角，顶点就是那个角。
+ * 走向必须和外框一致（顺时针）：先往下一个角，再往上一个角 —— 反过来的话
+ * 落在挖空处的那一半环绕数相消，三角会缺一块。
+ */
+function addWedges(path: Path2D, cx: number, cy: number, shape: [number, number][]): void {
+  for (const i of SITE_WEDGE_CORNERS) {
+    const [x, y] = shape[i];
+    const [nx, ny] = shape[(i + 1) % 6];
+    const [px, py] = shape[(i + 5) % 6];
+    path.moveTo(cx + x, cy + y);
+    path.lineTo(cx + x + (nx - x) * SITE_WEDGE, cy + y + (ny - y) * SITE_WEDGE);
+    path.lineTo(cx + x + (px - x) * SITE_WEDGE, cy + y + (py - y) * SITE_WEDGE);
+    path.closePath();
+  }
 }
 
 interface Mark {
